@@ -1,0 +1,99 @@
+<Window x:Class="PureAudio.Views.HelpWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="PureAudio — Руководство пользователя" Height="560" Width="580"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        WindowStyle="None" AllowsTransparency="False"
+        Background="#1A1A1A"
+        MouseLeftButtonDown="Window_MouseLeftButtonDown">
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </Window.Resources>
+    <Border BorderBrush="#FFA500" BorderThickness="1">
+        <Grid Background="#1A1A1A">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Title Bar -->
+            <Border Grid.Row="0" Background="#222" Padding="10,6">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="PureAudio — Руководство пользователя" FontSize="14" FontWeight="Bold" Foreground="#FFA500" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Width="20" Height="20" Content="✕" FontSize="10" Padding="0"
+                            Click="CloseButton_Click" ToolTip="Закрыть"
+                            Background="#333" Foreground="#FFA500" BorderBrush="#FFA500" BorderThickness="1" />
+                </Grid>
+            </Border>
+
+            <!-- Content -->
+            <Grid Grid.Row="1" Margin="15,10,15,15">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock x:Name="HelpPhilosophyTitle" Text="Философия PureAudio" FontSize="14" FontWeight="Bold" Margin="0,0,0,5" Foreground="#FFA500" />
+                        <TextBlock x:Name="HelpPhilosophyText" 
+                                   Text="PureAudio — это не просто плеер. Это инструмент для чистого созерцания музыки. Мы сознательно отказались от сотен настроек, эквалайзеров и «улучшайзеров», потому что убеждены: лучший звук — тот, в который не вмешиваются. Наша цель — передать звуковую картину в том виде, в каком её задумали артист и звукорежиссёр в студии. Никаких компромиссов, никаких «окрашиваний». Только честный, бит-перфект звук." 
+                                   FontSize="12" Margin="0,0,0,12" Foreground="#FFA500" />
+
+                        <!-- WASAPI vs ASIO -->
+                        <TextBlock x:Name="HelpWasapiVsAsioTitle" Text="Почему WASAPI, а не ASIO?" FontSize="14" FontWeight="Bold" Margin="0,0,0,5" Foreground="#FFA500" />
+                        <TextBlock x:Name="HelpWasapiVsAsioText" 
+                                   Text="Многие аудиофилы привыкли к ASIO — технологии, созданной для профессиональных звуковых карт. ASIO требует установки отдельных драйверов от производителя, сложной настройки буферизации и часто конфликтует с системными звуками. Это наследие 90-х, когда Windows не умела работать с качественным звуком «из коробки».&#10;&#10;WASAPI (Windows Audio Session API) — современная технология от Microsoft, которая решает ту же задачу, но проще и надёжнее. В режиме Exclusive (эксклюзивный) WASAPI делает то же самое, что и ASIO: полностью обходит системный микшер Windows и передаёт аудиопоток напрямую на вашу звуковую карту, обеспечивая побитовую точность (bit-perfect).&#10;&#10;Преимущества WASAPI перед ASIO:&#10;• Не требует сторонних драйверов — работает на любом современном оборудовании&#10;• Проще в настройке — достаточно одного нажатия кнопки&#10;• Стабильнее — нет конфликтов с системными звуками&#10;• Качество идентично — и WASAPI Exclusive, и ASIO дают один и тот же бит-перфект результат" 
+                                   FontSize="12" Margin="0,0,0,12" Foreground="#FFA500" />
+
+                        <!-- WASAPI Shared vs Exclusive -->
+                        <TextBlock x:Name="HelpWasapiModesTitle" Text="Shared vs Exclusive: в чём разница?" FontSize="14" FontWeight="Bold" Margin="0,0,0,5" Foreground="#FFA500" />
+                        <TextBlock x:Name="HelpWasapiModesText" 
+                                   Text="Shared (общий режим) — режим по умолчанию. Звук из всех приложений (браузер, игры, системные уведомления) смешивается системным микшером Windows. Это удобно, но микшер может передискретизировать ваш аудиофайл (например, из 44.1 кГц в 48 кГц), что вносит искажения.&#10;&#10;Exclusive (эксклюзивный режим) — PureAudio захватывает звуковую карту в монопольное пользование. Системный микшер отключается, аудиопоток идёт напрямую к ЦАП. Вы слышите именно то, что записано в файле — ни больше, ни меньше.&#10;&#10;Когда использовать Exclusive:&#10;• Для критичного прослушивания lossless-форматов (FLAC, WAV, AIFF, DSD)&#10;• Когда важна максимальная точность воспроизведения&#10;• При использовании внешнего ЦАП или Hi-Fi усилителя&#10;&#10;Когда достаточно Shared:&#10;• Фоновое прослушивание MP3 и других lossy-форматов&#10;• Если вам нужны системные звуки одновременно с музыкой&#10;• При использовании встроенной звуковой карты ноутбука&#10;&#10;Важно: в Exclusive режиме громкость регулируется программно (ползунок Vol), так как системный регулятор отключён. PureAudio использует кубическую кривую громкости для максимально плавного и естественного управления." 
+                                   FontSize="12" Margin="0,0,0,12" Foreground="#FFA500" />
+
+                        <!-- Gapless -->
+                        <TextBlock x:Name="HelpGaplessTitle" Text="Gapless (бесшовное воспроизведение)" FontSize="14" FontWeight="Bold" Margin="0,0,0,5" Foreground="#FFA500" />
+                        <TextBlock x:Name="HelpGaplessText" 
+                                   Text="При включении Gapless треки переходят друг в друга без малейшей паузы. Это критически важно для:&#10;• Концертных записей и живых альбомов&#10;• Классической музыки (переходы между частями симфоний)&#10;• Концептуальных альбомов, где треки задуманы как единое целое&#10;• DJ-миксов и электронной музыки&#10;&#10;PureAudio реализует gapless на уровне аудиопотока — следующий трек начинает читаться в тот же буфер, где закончился предыдущий. Никаких зазоров, никаких щелчков." 
+                                   FontSize="12" Margin="0,0,0,12" Foreground="#FFA500" />
+
+                        <!-- Управление -->
+                        <TextBlock x:Name="HelpControlsTitle" Text="Элементы управления" FontSize="14" FontWeight="Bold" Margin="0,0,0,5" Foreground="#FFA500" />
+                        <TextBlock x:Name="HelpControlsText" 
+                                   Text="◄◄ — Предыдущий трек&#10;►/❚❚ — Воспроизведение / Пауза&#10;■ — Остановка&#10;►► — Следующий трек&#10;&#10;WASAPI — переключение между Shared и Exclusive режимами&#10;Gapless — включение/отключение бесшовного воспроизведения&#10;Vol — регулятор громкости (активен только в Exclusive режиме)&#10;&#10;Lossless / Compressed — переключение между библиотеками Hi-Res и MP3&#10;Add Source — добавить папку с музыкой в текущую библиотеку&#10;? — это окно справки&#10;▼ / ▲ — развернуть / свернуть панель библиотеки и плейлиста" 
+                                   FontSize="12" Margin="0,0,0,12" Foreground="#FFA500" />
+
+                        <!-- Библиотека и плейлист -->
+                        <TextBlock x:Name="HelpLibraryTitle" Text="Библиотека и плейлист" FontSize="14" FontWeight="Bold" Margin="0,0,0,5" Foreground="#FFA500" />
+                        <TextBlock x:Name="HelpLibraryText" 
+                                   Text="Нажмите ▼, чтобы развернуть нижнюю панель.&#10;&#10;Слева — библиотека: дерево папок с вашей музыкой. Используйте поиск для быстрой фильтрации. Двойной клик по папке добавляет все треки из неё в плейлист, двойной клик по файлу — только его.&#10;&#10;Справа — плейлист:&#10;• Up / Down — переместить выбранный трек вверх/вниз&#10;• X — удалить выбранный трек из плейлиста&#10;• Clear — очистить весь плейлист&#10;&#10;Двойной клик по треку в плейлисте начинает воспроизведение с него. Текущий трек подсвечивается автоматически." 
+                                   FontSize="12" Margin="0,0,0,12" Foreground="#FFA500" />
+
+                        <!-- Индикаторы -->
+                        <TextBlock x:Name="HelpIndicatorsTitle" Text="Индикаторы состояния" FontSize="14" FontWeight="Bold" Margin="0,0,0,5" Foreground="#FFA500" />
+                        <TextBlock x:Name="HelpIndicatorsText" 
+                                   Text="В информационной панели отображаются:&#10;• Название трека, исполнитель и альбом (с бегущей строкой для длинных названий)&#10;• Текущее время воспроизведения и общая длительность&#10;• Битрейт в kbps&#10;• Режим WASAPI (Shared / Exclusive)&#10;• Статус Gapless (On / Off)&#10;• Индикаторы Play / Pause / Stop (активный режим подсвечен оранжевым)&#10;• Индикаторы Hires / MP3 (текущий режим библиотеки подсвечен оранжевым)" 
+                                   FontSize="12" Margin="0,0,0,12" Foreground="#FFA500" />
+
+                        <!-- Советы -->
+                        <TextBlock x:Name="HelpTipsTitle" Text="Советы для наилучшего звучания" FontSize="14" FontWeight="Bold" Margin="0,0,0,5" Foreground="#FFA500" />
+                        <TextBlock x:Name="HelpTipsText" 
+                                   Text="1. Для максимального качества используйте WASAPI Exclusive + Gapless. Это даёт бит-перфект вывод без каких-либо искажений.&#10;&#10;2. В Exclusive режиме регулируйте громкость ползунком Vol — системный регулятор отключён.&#10;&#10;3. Для lossless-форматов (FLAC, WAV, AIFF) используйте библиотеку Lossless. Для MP3, AAC, OGG — Compressed.&#10;&#10;4. Если вы используете внешний ЦАП (DAC), обязательно включите Exclusive режим — только так вы получите звук без вмешательства Windows.&#10;&#10;5. Не ищите «улучшений» звука настройками — их нет. PureAudio спроектирован так, чтобы не портить то, что уже сделано профессионалами на студии. Просто нажмите Play и слушайте." 
+                                   FontSize="12" Margin="0,0,0,12" Foreground="#FFA500" />
+
+                        <!-- Поддерживаемые форматы -->
+                        <TextBlock x:Name="HelpFormatsTitle" Text="Поддерживаемые форматы" FontSize="14" FontWeight="Bold" Margin="0,0,0,5" Foreground="#FFA500" />
+                        <TextBlock x:Name="HelpFormatsText" 
+                                   Text="Lossless (библиотека Lossless):&#10;• FLAC (.flac) — Free Lossless Audio Codec&#10;• WAV (.wav) — Waveform Audio&#10;• AIFF (.aiff, .aif) — Audio Interchange File Format&#10;• DSD (.dsf, .dff) — Direct Stream Digital&#10;• APE (.ape) — Monkey's Audio&#10;• WV (.wv) — WavPack&#10;&#10;Compressed (библиотека Compressed):&#10;• MP3 (.mp3) — MPEG Audio Layer III&#10;• AAC (.aac) — Advanced Audio Coding&#10;• M4A (.m4a) — MPEG-4 Audio (ALAC/AAC)&#10;• OGG (.ogg) — Ogg Vorbis&#10;• WMA (.wma) — Windows Media Audio&#10;• Opus (.opus) — Opus Interactive Audio Codec" 
+                                   FontSize="12" Margin="0,0,0,15" Foreground="#FFA500" />
+
+                        <Button x:Name="HelpCloseButton" Content="Закрыть" Width="80" Height="30" HorizontalAlignment="Center"
+                                Click="CloseButton_Click" FontSize="12" Background="#333" Foreground="#FFA500" BorderBrush="#FFA500" BorderThickness="1" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

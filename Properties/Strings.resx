@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <data name="HelpTitle" xml:space="preserve"><value>PureAudio - User Guide</value></data>
+  <data name="HelpIntro" xml:space="preserve"><value>PureAudio is a bit-perfect audio player for high-quality music playback.</value></data>
+  <data name="HelpPlayback" xml:space="preserve"><value>Playback Controls: Use ◄◄ (Previous), ►/❚❚ (Play/Pause), ■ (Stop), ►► (Next) to control playback.</value></data>
+  <data name="HelpWasapi" xml:space="preserve"><value>WASAPI Mode: Toggle between Shared and Exclusive modes. Exclusive mode provides bit-perfect output.</value></data>
+  <data name="HelpGapless" xml:space="preserve"><value>Gapless: When enabled, tracks transition without silence between them.</value></data>
+  <data name="HelpLibrary" xml:space="preserve"><value>Library: Browse your music folders, double-click to add tracks to the playlist.</value></data>
+  <data name="HelpPlaylist" xml:space="preserve"><value>Playlist: Reorder tracks with Up/Down, remove with X, or clear all with the basket icon.</value></data>
+  <data name="HelpClose" xml:space="preserve"><value>Close</value></data>
+  <data name="WasapiExcl" xml:space="preserve"><value>Excl</value></data>
+  <data name="WasapiShared" xml:space="preserve"><value>Shared</value></data>
+  <data name="GaplessOn" xml:space="preserve"><value>On</value></data>
+  <data name="GaplessOff" xml:space="preserve"><value>Off</value></data>
+  <data name="ModeHires" xml:space="preserve"><value>Hires</value></data>
+  <data name="ModeHiresPlus" xml:space="preserve"><value>+hires</value></data>
+  <data name="ModeMp3" xml:space="preserve"><value>+mp3</value></data>
+  <data name="Playlist" xml:space="preserve"><value>Playlist</value></data>
+  <data name="Library" xml:space="preserve"><value>Library</value></data>
+  <data name="NoCover" xml:space="preserve"><value>No Image</value></data>
+  <data name="Up" xml:space="preserve"><value>Up</value></data>
+  <data name="Down" xml:space="preserve"><value>Down</value></data>
+  <data name="Delete" xml:space="preserve"><value>X</value></data>
+  <data name="Clear" xml:space="preserve"><value>Clear</value></data>
+  <data name="StatusPlay" xml:space="preserve"><value>Playing</value></data>
+  <data name="StatusPause" xml:space="preserve"><value>Paused</value></data>
+  <data name="StatusStop" xml:space="preserve"><value>Stopped</value></data>
+  <data name="DarkTheme" xml:space="preserve"><value>Dark</value></data>
+  <data name="GrayTheme" xml:space="preserve"><value>Gray</value></data>
+  <data name="English" xml:space="preserve"><value>EN</value></data>
+  <data name="Russian" xml:space="preserve"><value>RU</value></data>
+  <data name="AddFolder" xml:space="preserve"><value>Add Folder</value></data>
+  <data name="Hires" xml:space="preserve"><value>Hires</value></data>
+  <data name="HiresPlus" xml:space="preserve"><value>+hires</value></data>
+  <data name="Mp3" xml:space="preserve"><value>+mp3</value></data>
+</root>

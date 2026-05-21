@@ -1,0 +1,38 @@
+# Виртуальное окружение
+venv/
+.venv/
+env/
+
+# Кэш Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Файлы IDE
+.vscode/
+.idea/
+*.swp
+
+# Системные файлы
+Thumbs.db
+.DS_Store
+
+# Ваши временные / отладочные файлы (пример)
+debug_*.json
+out_*.txt
+check_*.log
+
+# Результаты сборки
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+
+# Папки IDE
+.vs/
+
+# Пользовательские файлы
+*.user
+*.suo

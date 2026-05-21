@@ -1,0 +1,48 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <NoWarn>NU1701</NoWarn>
+
+    <!-- Иконка приложения -->
+    <ApplicationIcon>music_icon.ico</ApplicationIcon>
+
+    <!-- Метаданные -->
+    <AssemblyName>PureAudio</AssemblyName>
+    <RootNamespace>PureAudio</RootNamespace>
+    <Description>PureAudio — аудиофильский аудиоплеер с бит-перфект выводом через WASAPI Exclusive</Description>
+    <Company>PureAudio</Company>
+    <Product>PureAudio</Product>
+    <Copyright>© 2026 PureAudio</Copyright>
+    <Version>1.0.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+
+    <!-- Self-contained single-file publish -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.3.0" />
+    <PackageReference Include="NAudio.Flac" Version="1.0.5702.29018" />
+    <PackageReference Include="TagLibSharp" Version="2.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Update="Properties\Strings.resx" />
+  </ItemGroup>
+
+  <!-- Явно включаем иконку в сборку -->
+  <ItemGroup>
+    <Content Include="music_icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>
