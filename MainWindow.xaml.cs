@@ -1,100 +1,67 @@
-﻿using System.Windows;
+﻿using PureAudio.Controls;
+using PureAudio.Models;
+using PureAudio.ViewModels;
+using System;
+using System.ComponentModel;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media.Animation;
-using PureAudio.Controls;
-using PureAudio.ViewModels;
 
 namespace PureAudio;
 
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _viewModel;
-    private readonly SpectrumControl _spectrumControl;
-
+    private SpectrumControl? _spectrumControl;
     public MainWindow(MainViewModel viewModel)
     {
         InitializeComponent();
+
         _viewModel = viewModel;
         DataContext = _viewModel;
 
-        // Create SpectrumControl programmatically
-        _spectrumControl = new SpectrumControl();
-        _spectrumControl.SetBinding(SpectrumControl.DataProperty, "FftData");
-        _spectrumControl.SetBinding(SpectrumControl.PeakDataProperty, "FftPeakData");
-        _spectrumControl.BarColor = System.Windows.Media.Color.FromRgb(0xFF, 0xA5, 0x00);
-        _spectrumControl.PeakColor = System.Windows.Media.Color.FromRgb(0xFF, 0x44, 0x44);
-        _spectrumControl.BackgroundColor = System.Windows.Media.Color.FromRgb(0x1A, 0x1A, 0x1A);
+        // Initialize the spectrum control inside the FFT container
+        InitializeSpectrumControl();
 
-        // Find FftContainer by name (it's inside a Border template)
-        if (FindName("FftContainer") is Grid fftContainer)
-        {
-            fftContainer.Children.Add(_spectrumControl);
-            System.Diagnostics.Debug.WriteLine("MainWindow: SpectrumControl added to FftContainer via FindName");
-        }
-        else
-        {
-            System.Diagnostics.Debug.WriteLine("MainWindow: ERROR - FftContainer not found!");
-        }
-
-        System.Diagnostics.Debug.WriteLine("MainWindow: SpectrumControl created and added to FftContainer");
-
+        // Subscribe to ViewModel property changes for spectrum data
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+
+        // Handle window closing
+        Closing += OnWindowClosing;
     }
 
-    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    /// <summary>
+    /// Creates and initializes the PyQtGraph-style spectrum analyzer
+    /// with segmented bars and spring physics animation.
+    /// </summary>
+    private void InitializeSpectrumControl()
     {
-        if (e.PropertyName == nameof(MainViewModel.IsExpanded))
+        _spectrumControl = new SpectrumControl
         {
-            AnimateHeight(_viewModel.IsExpanded ? 620 : 220);
-        }
-    }
-
-    private void AnimateHeight(double targetHeight)
-    {
-        var animation = new DoubleAnimation
-        {
-            To = targetHeight,
-            Duration = TimeSpan.FromMilliseconds(300),
-            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut }
+            // The control will be sized by its container
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
         };
-        BeginAnimation(HeightProperty, animation);
-    }
 
-    private void LibraryTreeView_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
-    {
-        // Update SelectedLibraryItem when tree selection changes
-        if (sender is TreeView treeView)
+        // Insert into the FFT container Grid
+        if (FftContainer != null)
         {
-            _viewModel.ExpandedPanel.SelectedLibraryItem = treeView.SelectedItem;
+            FftContainer.Children.Add(_spectrumControl);
         }
     }
 
-    private void LibraryTreeView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    /// <summary>
+    /// Listens for spectrum data updates from the ViewModel.
+    /// </summary>
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (sender is TreeView treeView && treeView.SelectedItem != null)
+        if (e.PropertyName == nameof(MainViewModel.SpectrumData) && _spectrumControl != null)
         {
-            _viewModel.ExpandedPanel.DoubleClickLibraryCommand.Execute(null);
+            _spectrumControl.Data = _viewModel.SpectrumData;
         }
     }
 
-    private void Playlist_MouseDoubleClick(object sender, MouseButtonEventArgs e)
-    {
-        if (sender is System.Windows.Controls.ListBox listBox && listBox.SelectedItem != null)
-        {
-            int index = listBox.SelectedIndex;
-            if (index >= 0)
-            {
-                _viewModel.PlayPlaylistItem(index);
-            }
-        }
-    }
-
-    private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.LeftButton == MouseButtonState.Pressed)
-            DragMove();
-    }
+    // ── Window Control Handlers ──
 
     private void MinimizeButton_Click(object sender, RoutedEventArgs e)
     {
@@ -106,35 +73,67 @@ public partial class MainWindow : Window
         Close();
     }
 
-    protected override void OnClosed(EventArgs e)
-    {
-        base.OnClosed(e);
-        _viewModel.ExpandedPanel.SavePlaylist();
-        // Settings are auto-saved on each change, but ensure final save
-        _viewModel.SaveSettings();
-    }
+    // ── Progress Slider Handlers ──
 
     private void ProgressSlider_DragStarted(object sender, System.Windows.Controls.Primitives.DragStartedEventArgs e)
     {
-        _viewModel.BeginSeek();
     }
 
     private void ProgressSlider_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
     {
-        _viewModel.EndSeek(_viewModel.Progress);
+        if (sender is Slider slider)
+        {
+            _viewModel.SeekCommand.Execute(slider.Value);
+        }
     }
 
     private void ProgressSlider_PreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
-        // Handle click on the slider track (not just thumb drag).
-        // Calculate fraction from mouse X position relative to slider width.
         if (sender is Slider slider && e.LeftButton == MouseButtonState.Pressed)
         {
-            System.Windows.Point pos = e.GetPosition(slider);
-            double fraction = pos.X / slider.ActualWidth;
-            fraction = Math.Clamp(fraction, 0.0, 1.0);
-            _viewModel.EndSeek(fraction);
-            e.Handled = true;
+            // Calculate click position as a ratio
+            Point clickPoint = e.GetPosition(slider);
+            double ratio = clickPoint.X / slider.ActualWidth;
+            ratio = Math.Clamp(ratio, 0.0, 1.0);
+            _viewModel.SeekCommand.Execute(ratio);
         }
+    }
+
+    // ── Library Tree Handlers ──
+
+    private void LibraryTreeView_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    {
+        if (e.NewValue is LibraryNode node)
+        {
+            _viewModel.ExpandedPanel.SelectedLibraryItem = node;
+        }
+    }
+
+    private void LibraryTreeView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is TreeView treeView && treeView.SelectedItem is LibraryNode node && !node.IsFolder)
+        {
+            _viewModel.ExpandedPanel.AddToPlaylistCommand.Execute(node);
+        }
+    }
+
+    // ── Playlist Handlers ──
+
+    private void Playlist_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is ListBox listBox && listBox.SelectedItem is PlaylistItem item)
+        {
+            _viewModel.PlayPlaylistItem(item.Index);
+        }
+    }
+
+    // ── Cleanup ──
+
+    private void OnWindowClosing(object? sender, CancelEventArgs e)
+    {
+        _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        _spectrumControl?.Dispose();
+        _viewModel.SaveSettings();
+        _viewModel.ExpandedPanel.SavePlaylist();
     }
 }

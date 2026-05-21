@@ -27,7 +27,6 @@ public class MainViewModel : INotifyPropertyChanged
     private double _windowHeight = 220;
     private bool _isHiresMode;
     private float[] _fftData = new float[48];
-    private float[] _fftPeakData = new float[48];
     private string _marqueeText = "";
     private string _marqueeDisplayText = "";
     private int _marqueeOffset;
@@ -172,7 +171,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     public string WasapiModeText => _wasapiExclusive ? "WASAPI Exclusive" : "WASAPI Shared";
     public string GaplessText => _gaplessEnabled ? "Gapless On" : "Gapless Off";
-    public string GaplessTextColor => _gaplessEnabled ? "#FFA500" : "#AAAAAA";
+    public string GaplessTextColor => _gaplessEnabled ? "#C9A84C" : "#AAAAAA";
     public string PlayPauseIcon => _isPlaying ? "❚❚" : "►";
     public string StatusText
     {
@@ -180,14 +179,17 @@ public class MainViewModel : INotifyPropertyChanged
         set { _statusText = value; OnPropertyChanged(); }
     }
 
-    // Play/Pause/Stop indicator colors
-    public string PlayIndicatorColor => _isPlaying ? "#FFA500" : "#555555";
-    public string PauseIndicatorColor => _audioService.IsPaused ? "#FFA500" : "#555555";
-    public string StopIndicatorColor => (!_isPlaying && !_audioService.IsPaused) ? "#FFA500" : "#555555";
+    // Play/Pause/Stop indicator colors — gold accent (#C9A84C) when active
+    public string PlayIndicatorColor => _isPlaying ? "#C9A84C" : "#555555";
+    public string PauseIndicatorColor => _audioService.IsPaused ? "#C9A84C" : "#555555";
+    public string StopIndicatorColor => (!_isPlaying && !_audioService.IsPaused) ? "#C9A84C" : "#555555";
 
-    // Hires/MP3 indicator colors
-    public string HiresIndicatorColor => _isHiresMode ? "#FFA500" : "#555555";
-    public string Mp3IndicatorColor => !_isHiresMode ? "#FFA500" : "#555555";
+    // Hires/MP3 indicator colors — gold accent when active
+    public string HiresIndicatorColor => _isHiresMode ? "#C9A84C" : "#555555";
+    public string Mp3IndicatorColor => !_isHiresMode ? "#C9A84C" : "#555555";
+
+    // WASAPI indicator color — gold when Exclusive, gray when Shared
+    public string WasapiIndicatorColor => _wasapiExclusive ? "#C9A84C" : "#555555";
 
     public string LibraryModeText => _isHiresMode ? "Lossless" : "Compressed";
     public string AddSourceText => "Add Source";
@@ -219,16 +221,14 @@ public class MainViewModel : INotifyPropertyChanged
         set { _isSeeking = value; OnPropertyChanged(); }
     }
 
-    public float[] FftData
+    /// <summary>
+    /// Spectrum data for the segmented-bar spectrum analyzer.
+    /// Updated at ~60 FPS from FFT service.
+    /// </summary>
+    public float[] SpectrumData
     {
         get => _fftData;
         set { _fftData = value; OnPropertyChanged(); }
-    }
-
-    public float[] FftPeakData
-    {
-        get => _fftPeakData;
-        set { _fftPeakData = value; OnPropertyChanged(); }
     }
 
     // Volume control
@@ -246,7 +246,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     public bool IsVolumeActive => _wasapiExclusive;
 
-    public string VolumeTextColor => _wasapiExclusive ? "#FFA500" : "#AAAAAA";
+    public string VolumeTextColor => _wasapiExclusive ? "#C9A84C" : "#AAAAAA";
 
     // Expanded Panel ViewModel
     public ExpandedPanelViewModel ExpandedPanel { get; }
@@ -293,6 +293,7 @@ public class MainViewModel : INotifyPropertyChanged
         _audioService.SetWasapiMode(WasapiExclusive);
         OnPropertyChanged(nameof(IsVolumeActive));
         OnPropertyChanged(nameof(VolumeTextColor));
+        OnPropertyChanged(nameof(WasapiIndicatorColor));
         _settingsService.Update(s => s.WasapiExclusive = _wasapiExclusive);
     }
 
@@ -461,22 +462,17 @@ public class MainViewModel : INotifyPropertyChanged
         {
             // Update FFT data at high frequency for smooth animation
             var data = _fftService.GetPlaceholderData();
-            var peaks = _fftService.GetPeakData();
-            FftData = data;
-            FftPeakData = peaks;
+            SpectrumData = data;
         }
         else if (!_isPlaying)
         {
             // Show placeholder bars when stopped (small random-like values for visual appeal)
             var placeholder = new float[48];
-            var peakPlaceholder = new float[48];
             for (int i = 0; i < 48; i++)
             {
                 placeholder[i] = (float)(_rng.NextDouble() * 0.15);
-                peakPlaceholder[i] = (float)(_rng.NextDouble() * 0.2);
             }
-            FftData = placeholder;
-            FftPeakData = peakPlaceholder;
+            SpectrumData = placeholder;
         }
     }
 
@@ -560,6 +556,7 @@ public class MainViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(WasapiModeText));
                 OnPropertyChanged(nameof(IsVolumeActive));
                 OnPropertyChanged(nameof(VolumeTextColor));
+                OnPropertyChanged(nameof(WasapiIndicatorColor));
                 _settingsService.Update(s => s.WasapiExclusive = false);
                 LoadingStatusText = "WASAPI Exclusive unavailable, using Shared mode";
             }

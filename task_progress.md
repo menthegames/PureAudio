@@ -1,14 +1,13 @@
-# Task Progress - Fix Slow Startup / No Window After Reboot
+# Task Progress - Hi-Fi Redesign
 
-## Todo List
-
-- [x] Analyze all project files and understand the codebase
-- [ ] **1. App.xaml.cs** — Refactor startup: show window immediately, defer heavy operations
-- [ ] **2. MainWindow.xaml** — Add status bar for loading indicators
-- [ ] **3. MainViewModel.cs** — Add async loading methods and status properties
-- [ ] **4. ExpandedPanelViewModel.cs** — Add async library scanning with status
-- [ ] **5. AudioService.cs** — Add timeout for WASAPI Exclusive initialization
-- [ ] **6. MainWindow.xaml.cs** — Wire up post-startup loading
-- [ ] **7. PureAudio.csproj** — Switch from single-file to folder-based publish
-- [ ] **8. RELEASE_BUILD.md** — Update build instructions
-- [ ] **9. Build and test**
+## Todo
+- [x] Read SKILL.md and analyze requirements
+- [x] Read all existing source files
+- [ ] **Phase 1: Color Palette & Resources** - Update Styles.xaml with Hi-Fi colors (off-black, gold accent, no red/blue)
+- [ ] **Phase 2: Typography** - Add premium font, fix sizes/weights
+- [ ] **Phase 3: Button Styling** - Flat design, 8px radius, glow on hover, pressed feedback
+- [ ] **Phase 4: Spectrum Control Rewrite** - Segmented bars with spring physics animation
+- [ ] **Phase 5: MainWindow Layout** - Apply asymmetric blocks, minimalist Hi-Fi aesthetic
+- [ ] **Phase 6: MainWindow.xaml.cs** - Update spectrum control initialization, remove red colors
+- [ ] **Phase 7: MainViewModel** - Update color properties (remove orange, use gold)
+- [ ] **Phase 8: Build & Verify** - Ensure project compiles and runs

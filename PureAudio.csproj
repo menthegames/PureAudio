@@ -21,11 +21,10 @@
     <Version>1.0.0.0</Version>
     <FileVersion>1.0.0.0</FileVersion>
 
-    <!-- Self-contained single-file publish -->
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
+    <!-- Framework-dependent deployment (works on Windows 10 with .NET runtime) -->
+    <PublishSingleFile>false</PublishSingleFile>
+    <SelfContained>false</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>

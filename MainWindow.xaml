@@ -11,6 +11,7 @@
         Height="{Binding WindowHeight, Mode=TwoWay}"
         ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen"
         Background="{DynamicResource BackgroundBrush}" WindowStyle="None" AllowsTransparency="False"
+        FontFamily="Segoe UI Variable, Segoe UI, Helvetica, Arial, sans-serif"
         d:DataContext="{d:DesignInstance vm:MainViewModel}">
     <Window.Resources>
         <ResourceDictionary>
@@ -28,32 +29,47 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-
-        <!-- Main Content (220px) -->
-        <Border Grid.Row="0" Height="220" Background="{DynamicResource BackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+        <!-- ════════════════════════════════════════════════════════════
+             TOP BAR — Hi-Fi Control Center (220px)
+             Asymmetric layout: large cover art left, controls right,
+             spectrum spanning the middle-right area
+             ════════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="0" Height="220"
+                Background="{DynamicResource BackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="640" /> <!-- Display Area ~2/3 -->
                     <ColumnDefinition Width="270" /> <!-- Control Panel -->
-                    <ColumnDefinition Width="50" /> <!-- Window buttons -->
+                    <ColumnDefinition Width="50" />  <!-- Window buttons -->
                 </Grid.ColumnDefinitions>
 
-                <!-- Left Side: Display Area -->
+                <!-- ── Left Side: Display Area ── -->
                 <Grid Grid.Column="0" Margin="10,5,5,5">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="180" /> <!-- Cover Art -->
-                    <ColumnDefinition Width="*" /> <!-- Info -->
-                    <ColumnDefinition Width="260" /> <!-- FFT Spectrum -->
+                        <ColumnDefinition Width="180" /> <!-- Cover Art -->
+                        <ColumnDefinition Width="*" />   <!-- Info -->
+                        <ColumnDefinition Width="260" /> <!-- FFT Spectrum -->
                     </Grid.ColumnDefinitions>
 
-                    <!-- Cover Art -->
-                    <Border Grid.Row="0" Grid.Column="0" Width="180" Height="180" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="4" VerticalAlignment="Top" Margin="0,8,0,0">
+                    <!-- ── Cover Art ── -->
+                    <Border Grid.Row="0" Grid.Column="0"
+                            Width="180" Height="180"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            VerticalAlignment="Top"
+                            Margin="0,8,0,0"
+                            Effect="{DynamicResource CoverShadow}">
                         <Grid>
-                            <Image Source="{Binding CoverPath}" Width="178" Height="178" Stretch="UniformToFill">
+                            <Image Source="{Binding CoverPath}"
+                                   Width="178" Height="178"
+                                   Stretch="UniformToFill">
                                 <Image.Style>
                                     <Style TargetType="Image">
                                         <Setter Property="Visibility" Value="Visible" />
@@ -68,9 +84,11 @@
                                     </Style>
                                 </Image.Style>
                             </Image>
-                            <TextBlock Text="{Binding NoCoverText}" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
+                            <!-- No-cover placeholder -->
+                            <Border Background="#1A1A1A" CornerRadius="6"
+                                    Width="178" Height="178">
+                                <Border.Style>
+                                    <Style TargetType="Border">
                                         <Setter Property="Visibility" Value="Collapsed" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CoverPath}" Value="">
@@ -78,63 +96,136 @@
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
+                                </Border.Style>
+                                <Viewbox Width="48" Height="48" Opacity="0.3">
+                                    <Canvas Width="24" Height="24">
+                                        <Path Data="M12,3v10.55c-.59-.34-1.27-.55-2-.55-2.21,0-4,1.79-4,4s1.79,4,4,4,4-1.79,4-4V7h4V3h-6z"
+                                              Fill="{DynamicResource AccentBrush}" />
+                                    </Canvas>
+                                </Viewbox>
+                            </Border>
                         </Grid>
                     </Border>
 
-                    <!-- Marquee Track Info (spans Info + FFT columns, 435px wide, aligned to left edge of info block) -->
-                    <TextBlock Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" 
-                               Text="{Binding MarqueeDisplayText}" Foreground="{DynamicResource AccentBrush}" FontSize="14" 
-                               TextTrimming="CharacterEllipsis" Width="435" Margin="10,5,0,5" 
-                               HorizontalAlignment="Left" VerticalAlignment="Top" />
+                    <!-- ── Track Info (Marquee) ── -->
+                    <TextBlock Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
+                               Text="{Binding MarqueeDisplayText}"
+                               Foreground="{DynamicResource TextBrush}"
+                               FontSize="13"
+                               FontWeight="Medium"
+                               TextTrimming="CharacterEllipsis"
+                               Width="435"
+                               Margin="10,8,0,5"
+                               HorizontalAlignment="Left"
+                               VerticalAlignment="Top" />
 
-                    <!-- Info Area (right of cover) -->
-                    <StackPanel Grid.Row="0" Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
-                        <!-- Timer Display -->
+                    <!-- ── Info Area (right of cover) ── -->
+                    <StackPanel Grid.Row="0" Grid.Column="1"
+                                Margin="10,0,0,0"
+                                VerticalAlignment="Center">
+
+                        <!-- Timer Display — monospace for tabular figures -->
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="8" />
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{Binding ElapsedText}" Foreground="{DynamicResource AccentBrush}" FontSize="28" FontFamily="Consolas" />
-                            <TextBlock Grid.Column="2" Text="/" Foreground="{DynamicResource AccentBrush}" FontSize="28" />
-                            <TextBlock Grid.Column="3" Text="{Binding TotalDurationText}" Foreground="{DynamicResource AccentBrush}" FontSize="28" FontFamily="Consolas" />
+                            <TextBlock Grid.Column="0"
+                                       Text="{Binding ElapsedText}"
+                                       Foreground="{DynamicResource AccentBrush}"
+                                       FontSize="26"
+                                       FontFamily="Consolas"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2"
+                                       Text="/"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       FontSize="26"
+                                       FontFamily="Consolas" />
+                            <TextBlock Grid.Column="3"
+                                       Text="{Binding TotalDurationText}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="26"
+                                       FontFamily="Consolas" />
                         </Grid>
 
                         <!-- Bitrate -->
-                        <TextBlock Text="{Binding BitrateValue, StringFormat='{}{0} kbps'}" Foreground="{DynamicResource AccentBrush}" FontSize="14" Margin="0,5,0,0" />
+                        <TextBlock Text="{Binding BitrateValue, StringFormat='{}{0} kbps'}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   FontSize="12"
+                                   Margin="0,4,0,0" />
 
-                        <!-- Status Indicators: Row 1 - WASAPI + Gapless (always orange) -->
-                        <WrapPanel Margin="0,5,0,0">
-                            <Border Background="{DynamicResource ButtonBgBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="3" Padding="4,2" Margin="0,0,4,0">
-                                <TextBlock Text="{Binding WasapiModeText}" Foreground="{DynamicResource AccentBrush}" FontSize="11" />
+                        <!-- Status Indicators — gold when active, muted when inactive -->
+                        <WrapPanel Margin="0,6,0,0">
+                            <Border Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    CornerRadius="4"
+                                    Padding="6,3"
+                                    Margin="0,0,6,0">
+                                <TextBlock Text="{Binding WasapiModeText}"
+                                           FontSize="10"
+                                           FontWeight="Medium">
+                                    <TextBlock.Foreground>
+                                        <SolidColorBrush Color="{Binding WasapiIndicatorColor}" />
+                                    </TextBlock.Foreground>
+                                </TextBlock>
                             </Border>
-                            <Border Background="{DynamicResource ButtonBgBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="3" Padding="4,2" Margin="0,0,4,0">
-                                <TextBlock Text="{Binding GaplessText}" Foreground="{DynamicResource AccentBrush}" FontSize="11" />
+                            <Border Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    CornerRadius="4"
+                                    Padding="6,3"
+                                    Margin="0,0,6,0">
+                                <TextBlock Text="{Binding GaplessText}"
+                                           FontSize="10"
+                                           FontWeight="Medium">
+                                    <TextBlock.Foreground>
+                                        <SolidColorBrush Color="{Binding GaplessTextColor}" />
+                                    </TextBlock.Foreground>
+                                </TextBlock>
                             </Border>
                         </WrapPanel>
 
-                        <!-- Status Indicators: Row 2 - Play/Pause/Stop (active orange, inactive gray) -->
-                        <WrapPanel Margin="0,4,0,0">
-                            <Border Background="{DynamicResource ButtonBgBrush}" BorderBrush="{DynamicResource ButtonBorderBrush}" BorderThickness="1" CornerRadius="3" Padding="6,2" Margin="0,0,4,0">
-                                <TextBlock Text="►" FontSize="11" FontWeight="Bold">
+                        <!-- Play/Pause/Stop Indicators -->
+                        <WrapPanel Margin="0,5,0,0">
+                            <Border Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    CornerRadius="4"
+                                    Padding="6,3"
+                                    Margin="0,0,6,0">
+                                <TextBlock Text="►"
+                                           FontSize="10"
+                                           FontWeight="Bold">
                                     <TextBlock.Foreground>
                                         <SolidColorBrush Color="{Binding PlayIndicatorColor}" />
                                     </TextBlock.Foreground>
                                 </TextBlock>
                             </Border>
-                            <Border Background="{DynamicResource ButtonBgBrush}" BorderBrush="{DynamicResource ButtonBorderBrush}" BorderThickness="1" CornerRadius="3" Padding="6,2" Margin="0,0,4,0">
-                                <TextBlock Text="❚❚" FontSize="11" FontWeight="Bold">
+                            <Border Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    CornerRadius="4"
+                                    Padding="6,3"
+                                    Margin="0,0,6,0">
+                                <TextBlock Text="❚❚"
+                                           FontSize="10"
+                                           FontWeight="Bold">
                                     <TextBlock.Foreground>
                                         <SolidColorBrush Color="{Binding PauseIndicatorColor}" />
                                     </TextBlock.Foreground>
                                 </TextBlock>
                             </Border>
-                            <Border Background="{DynamicResource ButtonBgBrush}" BorderBrush="{DynamicResource ButtonBorderBrush}" BorderThickness="1" CornerRadius="3" Padding="6,2">
-                                <TextBlock Text="■" FontSize="11" FontWeight="Bold">
+                            <Border Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    CornerRadius="4"
+                                    Padding="6,3">
+                                <TextBlock Text="■"
+                                           FontSize="10"
+                                           FontWeight="Bold">
                                     <TextBlock.Foreground>
                                         <SolidColorBrush Color="{Binding StopIndicatorColor}" />
                                     </TextBlock.Foreground>
@@ -142,17 +233,30 @@
                             </Border>
                         </WrapPanel>
 
-                        <!-- Status Indicators: Row 3 - Hires / MP3 (active orange, inactive gray) -->
-                        <WrapPanel Margin="0,4,0,0">
-                            <Border Background="{DynamicResource ButtonBgBrush}" BorderBrush="{DynamicResource ButtonBorderBrush}" BorderThickness="1" CornerRadius="3" Padding="6,2" Margin="0,0,4,0">
-                                <TextBlock Text="Hires" FontSize="11">
+                        <!-- Hires/MP3 Indicators -->
+                        <WrapPanel Margin="0,5,0,0">
+                            <Border Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    CornerRadius="4"
+                                    Padding="6,3"
+                                    Margin="0,0,6,0">
+                                <TextBlock Text="Hires"
+                                           FontSize="10"
+                                           FontWeight="Medium">
                                     <TextBlock.Foreground>
                                         <SolidColorBrush Color="{Binding HiresIndicatorColor}" />
                                     </TextBlock.Foreground>
                                 </TextBlock>
                             </Border>
-                            <Border Background="{DynamicResource ButtonBgBrush}" BorderBrush="{DynamicResource ButtonBorderBrush}" BorderThickness="1" CornerRadius="3" Padding="6,2">
-                                <TextBlock Text="MP3" FontSize="11">
+                            <Border Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    CornerRadius="4"
+                                    Padding="6,3">
+                                <TextBlock Text="MP3"
+                                           FontSize="10"
+                                           FontWeight="Medium">
                                     <TextBlock.Foreground>
                                         <SolidColorBrush Color="{Binding Mp3IndicatorColor}" />
                                     </TextBlock.Foreground>
@@ -161,149 +265,233 @@
                         </WrapPanel>
                     </StackPanel>
 
-                    <!-- FFT Spectrum (130px height, 44px top margin) -->
-                    <Border Grid.Row="0" Grid.Column="2" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="3" Height="130" Margin="5,44,0,0" VerticalAlignment="Top" x:Name="FftBorder">
+                    <!-- ── FFT Spectrum (segmented bars, gold accent) ── -->
+                    <Border Grid.Row="0" Grid.Column="2"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Height="130"
+                            Margin="5,44,0,0"
+                            VerticalAlignment="Top"
+                            x:Name="FftBorder">
                         <Grid x:Name="FftContainer" />
                     </Border>
 
-                    <!-- Progress Bar (under Info + FFT columns only, not under Cover) -->
-                    <Slider Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" 
-                            Value="{Binding Progress}" Minimum="0" Maximum="1" Margin="10,-4,0,0"
+                    <!-- ── Progress Bar ── -->
+                    <Slider Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+                            Value="{Binding Progress}"
+                            Minimum="0" Maximum="1"
+                            Margin="10,-4,0,0"
+                            Height="20"
                             Thumb.DragStarted="ProgressSlider_DragStarted"
                             Thumb.DragCompleted="ProgressSlider_DragCompleted"
                             PreviewMouseDown="ProgressSlider_PreviewMouseDown" />
                 </Grid>
 
-                <!-- Right Side: Control Panel (320px area, actual controls 220x260) -->
-                <Grid Grid.Column="1" Width="220" Height="260" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <!-- ── Right Side: Control Panel ── -->
+                <Grid Grid.Column="1"
+                      Width="220" Height="260"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                        <!-- Row 1: WASAPI + Gapless buttons -->
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8">
-                            <Button Width="108" Height="28" Margin="0,0,4,0" 
-                                    Content="{Binding WasapiModeText}" 
-                                    Command="{Binding ToggleWasapiCommand}" FontSize="11" />
-                            <Button Width="108" Height="28" 
-                                    Content="{Binding GaplessText}" 
-                                    Command="{Binding ToggleGaplessCommand}" FontSize="11">
-                                <Button.Foreground>
-                                    <SolidColorBrush Color="{Binding GaplessTextColor}" />
-                                </Button.Foreground>
-                            </Button>
+
+                        <!-- Row 1: WASAPI + Gapless -->
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Center"
+                                    Margin="0,0,0,10">
+                            <Button Width="108" Height="30"
+                                    Margin="0,0,6,0"
+                                    Content="{Binding WasapiModeText}"
+                                    Command="{Binding ToggleWasapiCommand}"
+                                    FontSize="11" />
+                            <Button Width="108" Height="30"
+                                    Content="{Binding GaplessText}"
+                                    Command="{Binding ToggleGaplessCommand}"
+                                    FontSize="11" />
                         </StackPanel>
 
-                        <!-- Row 2: Transport controls -->
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8">
-                            <Button Width="52" Height="44" Margin="0,0,4,0"
-                                    Content="◄◄" Command="{Binding PreviousCommand}" FontSize="14" />
-                            <Button Width="52" Height="44" Margin="0,0,4,0"
-                                    Background="{DynamicResource AccentBrush}" Foreground="{DynamicResource BackgroundBrush}" BorderBrush="{DynamicResource AccentBrush}"
-                                    Content="{Binding PlayPauseIcon}" Command="{Binding PlayPauseCommand}" FontSize="14" />
-                            <Button Width="52" Height="44" Margin="0,0,4,0"
-                                    Content="■" Command="{Binding StopCommand}" FontSize="14" />
-                            <Button Width="52" Height="44"
-                                    Content="►►" Command="{Binding NextCommand}" FontSize="14" />
+                        <!-- Row 2: Transport Controls — asymmetric sizing -->
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Center"
+                                    Margin="0,0,0,10">
+                            <Button Width="48" Height="44"
+                                    Margin="0,0,6,0"
+                                    Content="◄◄"
+                                    Command="{Binding PreviousCommand}"
+                                    FontSize="13"
+                                    Style="{StaticResource GhostButtonStyle}" />
+                            <Button Width="56" Height="44"
+                                    Margin="0,0,6,0"
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    Content="{Binding PlayPauseIcon}"
+                                    Command="{Binding PlayPauseCommand}"
+                                    FontSize="16" />
+                            <Button Width="48" Height="44"
+                                    Margin="0,0,6,0"
+                                    Content="■"
+                                    Command="{Binding StopCommand}"
+                                    FontSize="13"
+                                    Style="{StaticResource GhostButtonStyle}" />
+                            <Button Width="48" Height="44"
+                                    Content="►►"
+                                    Command="{Binding NextCommand}"
+                                    FontSize="13"
+                                    Style="{StaticResource GhostButtonStyle}" />
                         </StackPanel>
 
-                        <!-- Row 3: Library mode toggle + Add Source -->
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8">
-                            <Button Width="108" Height="28" Margin="0,0,4,0"
-                                    Content="{Binding LibraryModeText}" Command="{Binding ToggleLibraryModeCommand}" FontSize="11" />
-                            <Button Width="108" Height="28"
-                                    Content="{Binding AddSourceText}" Command="{Binding AddSourceCommand}" FontSize="11" />
+                        <!-- Row 3: Library mode + Add Source -->
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Center"
+                                    Margin="0,0,0,10">
+                            <Button Width="108" Height="30"
+                                    Margin="0,0,6,0"
+                                    Content="{Binding LibraryModeText}"
+                                    Command="{Binding ToggleLibraryModeCommand}"
+                                    FontSize="11" />
+                            <Button Width="108" Height="30"
+                                    Content="{Binding AddSourceText}"
+                                    Command="{Binding AddSourceCommand}"
+                                    FontSize="11" />
                         </StackPanel>
 
-                        <!-- Row 4: Volume slider (active only in Exclusive mode) -->
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,4">
-                            <TextBlock Text="Vol" FontSize="11" 
-                                       VerticalAlignment="Center" Margin="0,0,4,0">
+                        <!-- Row 4: Volume -->
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Center"
+                                    Margin="0,0,0,6">
+                            <TextBlock Text="Vol"
+                                       FontSize="11"
+                                       FontWeight="Medium"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,6,0">
                                 <TextBlock.Foreground>
                                     <SolidColorBrush Color="{Binding VolumeTextColor}" />
                                 </TextBlock.Foreground>
                             </TextBlock>
-                            <Slider Width="200" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.05"
-                                    Value="{Binding VolumeValue}" 
+                            <Slider Width="200"
+                                    Minimum="0" Maximum="1"
+                                    SmallChange="0.01" LargeChange="0.05"
+                                    Value="{Binding VolumeValue}"
                                     IsEnabled="{Binding IsVolumeActive}" />
                         </StackPanel>
 
-                        <!-- Row 5: Help + Collapse buttons -->
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,0">
-                            <Button Width="36" Height="36" Margin="0,0,4,0"
-                                    Content="?" Command="{Binding ShowHelpCommand}" FontSize="14" />
+                        <!-- Row 5: Help + Expand -->
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Right"
+                                    Margin="0,0,0,0">
                             <Button Width="36" Height="36"
-                                    Content="{Binding ExpandIcon}" Command="{Binding ToggleExpandedCommand}" FontSize="14" />
+                                    Margin="0,0,6,0"
+                                    Content="?"
+                                    Command="{Binding ShowHelpCommand}"
+                                    FontSize="14"
+                                    Style="{StaticResource GhostButtonStyle}" />
+                            <Button Width="36" Height="36"
+                                    Content="{Binding ExpandIcon}"
+                                    Command="{Binding ToggleExpandedCommand}"
+                                    FontSize="14"
+                                    Style="{StaticResource GhostButtonStyle}" />
                         </StackPanel>
                     </StackPanel>
                 </Grid>
 
-                <!-- Window Control Buttons (Minimize / Close) -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,4,0">
-                    <Button Width="20" Height="20" Margin="0,0,3,0" Content="─" FontSize="10" Padding="0"
-                            Click="MinimizeButton_Click" ToolTip="Minimize" />
-                    <Button Width="20" Height="20" Content="✕" FontSize="10" Padding="0"
-                            Click="CloseButton_Click" ToolTip="Close" />
+                <!-- ── Window Control Buttons ── -->
+                <StackPanel Grid.Column="2"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Margin="0,6,6,0">
+                    <Button Width="22" Height="22"
+                            Margin="0,0,4,0"
+                            Content="─"
+                            FontSize="10"
+                            Padding="0"
+                            Click="MinimizeButton_Click"
+                            ToolTip="Minimize"
+                            Style="{StaticResource GhostButtonStyle}" />
+                    <Button Width="22" Height="22"
+                            Content="✕"
+                            FontSize="10"
+                            Padding="0"
+                            Click="CloseButton_Click"
+                            ToolTip="Close"
+                            Style="{StaticResource GhostButtonStyle}" />
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- Expanded Panel (initially hidden) -->
-        <Grid Grid.Row="1" x:Name="ExpandedPanel" Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}" Height="400">
+        <!-- ════════════════════════════════════════════════════════════
+             EXPANDED PANEL — Library + Playlist
+             ════════════════════════════════════════════════════════════ -->
+        <Grid Grid.Row="1"
+              x:Name="ExpandedPanel"
+              Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}"
+              Height="400">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" /> <!-- Library -->
+                <ColumnDefinition Width="*" />   <!-- Library -->
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" /> <!-- Playlist -->
+                <ColumnDefinition Width="*" />   <!-- Playlist -->
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <!-- Library Header -->
-            <Border Grid.Row="0" Grid.Column="0" Background="{DynamicResource HeaderBrush}" Padding="5">
+            <!-- ── Library Header ── -->
+            <Border Grid.Row="0" Grid.Column="0"
+                    Background="{DynamicResource HeaderBrush}"
+                    Padding="8,6">
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="{Binding ExpandedPanel.LibraryTitle}" FontSize="13" FontWeight="Bold"
-                               VerticalAlignment="Center" Margin="4,0,8,0"
-                               Foreground="{DynamicResource AccentBrush}" />
-                    <TextBlock Text="{Binding ExpandedPanel.ScanStatusText}" FontSize="11"
+                    <TextBlock Text="{Binding ExpandedPanel.LibraryTitle}"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center"
+                               Margin="4,0,12,0"
+                               Foreground="{DynamicResource TextBrush}" />
+                    <TextBlock Text="{Binding ExpandedPanel.ScanStatusText}"
+                               FontSize="11"
+                               FontWeight="Medium"
                                VerticalAlignment="Center"
                                Visibility="{Binding ExpandedPanel.ScanBlinkVisible, Converter={StaticResource BoolToVis}}"
-                               Foreground="#FFA500" />
+                               Foreground="{DynamicResource AccentBrush}" />
                     <!-- Search Box -->
                     <TextBox Text="{Binding ExpandedPanel.SearchText, UpdateSourceTrigger=PropertyChanged}"
-                             Width="120" Height="22" FontSize="11" Margin="8,0,0,0"
-                             VerticalAlignment="Center"
-                             Foreground="{DynamicResource AccentBrush}"
-                             Background="{DynamicResource SurfaceBrush}"
-                             BorderBrush="{DynamicResource BorderBrush}"
-                             BorderThickness="1">
-                        <TextBox.Style>
-                            <Style TargetType="TextBox">
-                                <Setter Property="Visibility" Value="Visible" />
-                            </Style>
-                        </TextBox.Style>
-                    </TextBox>
+                             Width="120" Height="24"
+                             FontSize="11"
+                             Margin="12,0,0,0"
+                             VerticalAlignment="Center" />
                 </StackPanel>
             </Border>
 
-            <!-- Library Tree -->
-            <TreeView Grid.Row="1" Grid.Column="0" Background="{DynamicResource SurfaceBrush}"
+            <!-- ── Library Tree ── -->
+            <TreeView Grid.Row="1" Grid.Column="0"
+                      Background="{DynamicResource SurfaceBrush}"
                       ItemsSource="{Binding ExpandedPanel.FilteredLibrary}"
-                      BorderBrush="{DynamicResource BorderBrush}" Margin="5"
+                      BorderBrush="{DynamicResource BorderBrush}"
+                      Margin="5"
                       SelectedItemChanged="LibraryTreeView_SelectedItemChanged"
                       MouseDoubleClick="LibraryTreeView_MouseDoubleClick">
                 <TreeView.ItemContainerStyle>
                     <Style TargetType="TreeViewItem">
                         <Setter Property="IsExpanded" Value="{Binding IsExpanded}" />
+                        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                        <Setter Property="Background" Value="Transparent" />
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource ButtonBgBrush}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                        </Style.Triggers>
                     </Style>
                 </TreeView.ItemContainerStyle>
                 <TreeView.ItemTemplate>
                     <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                        <TextBlock Text="{Binding Name}" FontSize="14">
+                        <TextBlock Text="{Binding Name}"
+                                   FontSize="13">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsFolder}" Value="False">
-                                            <Setter Property="Foreground" Value="#CCCCCC" />
+                                            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -313,29 +501,41 @@
                 </TreeView.ItemTemplate>
             </TreeView>
 
-            <!-- Playlist Header -->
-            <Border Grid.Row="0" Grid.Column="2" Background="{DynamicResource HeaderBrush}" Padding="5">
+            <!-- ── Playlist Header ── -->
+            <Border Grid.Row="0" Grid.Column="2"
+                    Background="{DynamicResource HeaderBrush}"
+                    Padding="8,6">
                 <StackPanel Orientation="Horizontal">
-                <Button Content="{Binding ExpandedPanel.UpText}"
-                        Height="28" Width="40" Margin="0,0,4,0" FontSize="11"
-                        Command="{Binding ExpandedPanel.PlaylistUpCommand}" />
-                <Button Content="{Binding ExpandedPanel.DownText}"
-                        Height="28" Width="40" Margin="0,0,4,0" FontSize="11"
-                        Command="{Binding ExpandedPanel.PlaylistDownCommand}" />
-                <Button Content="{Binding ExpandedPanel.DeleteText}"
-                        Height="28" Width="30" Margin="0,0,4,0" FontSize="11"
-                        Command="{Binding ExpandedPanel.PlaylistDeleteCommand}" />
-                <Button Content="{Binding ExpandedPanel.ClearText}"
-                        Height="28" Width="30" FontSize="11"
-                        Command="{Binding ExpandedPanel.PlaylistClearCommand}" />
+                    <Button Content="{Binding ExpandedPanel.UpText}"
+                            Height="28" Width="40"
+                            Margin="0,0,6,0"
+                            FontSize="11"
+                            Command="{Binding ExpandedPanel.PlaylistUpCommand}" />
+                    <Button Content="{Binding ExpandedPanel.DownText}"
+                            Height="28" Width="40"
+                            Margin="0,0,6,0"
+                            FontSize="11"
+                            Command="{Binding ExpandedPanel.PlaylistDownCommand}" />
+                    <Button Content="{Binding ExpandedPanel.DeleteText}"
+                            Height="28" Width="36"
+                            Margin="0,0,6,0"
+                            FontSize="11"
+                            Command="{Binding ExpandedPanel.PlaylistDeleteCommand}" />
+                    <Button Content="{Binding ExpandedPanel.ClearText}"
+                            Height="28" Width="36"
+                            FontSize="11"
+                            Command="{Binding ExpandedPanel.PlaylistClearCommand}" />
                 </StackPanel>
             </Border>
 
-            <!-- Playlist -->
-            <ListBox Grid.Row="1" Grid.Column="2" Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource AccentBrush}"
+            <!-- ── Playlist ── -->
+            <ListBox Grid.Row="1" Grid.Column="2"
+                     Background="{DynamicResource SurfaceBrush}"
+                     Foreground="{DynamicResource TextBrush}"
                      ItemsSource="{Binding ExpandedPanel.PlaylistItems}"
                      SelectedIndex="{Binding ExpandedPanel.SelectedPlaylistIndex}"
-                     BorderBrush="{DynamicResource BorderBrush}" Margin="5"
+                     BorderBrush="{DynamicResource BorderBrush}"
+                     Margin="5"
                      MouseDoubleClick="Playlist_MouseDoubleClick">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
@@ -345,27 +545,51 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{Binding Index, StringFormat='{}{0}'}" 
-                                       FontSize="12" Foreground="#888888" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="1" Text="{Binding AudioFile.Artist}" 
-                                       FontSize="12" Foreground="#AAAAAA" VerticalAlignment="Center" Margin="4,0,6,0" />
-                            <TextBlock Grid.Column="2" Text="{Binding AudioFile.Title}" 
-                                       FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="0"
+                                       Text="{Binding Index, StringFormat='{}{0}'}"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding AudioFile.Artist}"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="4,0,6,0" />
+                            <TextBlock Grid.Column="2"
+                                       Text="{Binding AudioFile.Title}"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" />
                         </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
 
-            <!-- Divider -->
-            <GridSplitter Grid.Row="0" Grid.RowSpan="2" Grid.Column="1" Width="3" Background="{DynamicResource AccentBrush}" />
+            <!-- ── Divider ── -->
+            <GridSplitter Grid.Row="0" Grid.RowSpan="2"
+                          Grid.Column="1"
+                          Width="3"
+                          Background="{DynamicResource BorderBrush}"
+                          Margin="2,0" />
         </Grid>
 
-        <!-- Loading Status Bar (bottom of window) -->
-        <Border Grid.Row="2" Height="24" Background="{DynamicResource SurfaceBrush}" 
-                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
+        <!-- ════════════════════════════════════════════════════════════
+             LOADING STATUS BAR
+             ════════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="2"
+                Height="24"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,1,0,0"
                 Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
-            <TextBlock Text="{Binding LoadingStatusText}" Foreground="#FFA500" FontSize="11"
-                       VerticalAlignment="Center" Margin="8,0,0,0" />
+            <TextBlock Text="{Binding LoadingStatusText}"
+                       Foreground="{DynamicResource AccentBrush}"
+                       FontSize="11"
+                       FontWeight="Medium"
+                       VerticalAlignment="Center"
+                       Margin="8,0,0,0" />
         </Border>
     </Grid>
 </Window>
