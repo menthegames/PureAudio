@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Input;
@@ -18,6 +19,7 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
     private int _selectedPlaylistIndex = -1;
     private object? _selectedLibraryItem;
     private bool _isScanning;
+    private bool _isRefreshing;
     private System.Windows.Threading.DispatcherTimer? _scanBlinkTimer;
     private bool _scanBlinkVisible;
     private string _scanStatusText = "";
@@ -41,6 +43,8 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         PlaylistDeleteCommand = new RelayCommand(_ => DeleteSelected());
         PlaylistClearCommand = new RelayCommand(_ => ClearPlaylist());
         DoubleClickLibraryCommand = new RelayCommand(_ => DoubleClickLibrary());
+        DeleteLibrarySourceCommand = new RelayCommand(_ => DeleteLibrarySource());
+        RefreshLibraryCommand = new RelayCommand(_ => RefreshLibrary());
 
         // Sync playlist selection with currently playing track
         _audioService.TrackChanged += OnTrackChanged;
@@ -211,6 +215,13 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
     public string DownText => "Down";
     public string DeleteText => "X";
     public string ClearText => "Clear";
+    public string DeleteLibrarySourceText => "✕";
+    public string RefreshLibraryText => "↻";
+    public bool IsRefreshing
+    {
+        get => _isRefreshing;
+        set { _isRefreshing = value; OnPropertyChanged(); OnPropertyChanged(nameof(RefreshLibraryText)); }
+    }
 
     public ICommand AddHiresSourceCommand { get; }
     public ICommand AddMp3SourceCommand { get; }
@@ -220,6 +231,8 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
     public ICommand PlaylistDeleteCommand { get; }
     public ICommand PlaylistClearCommand { get; }
     public ICommand DoubleClickLibraryCommand { get; }
+    public ICommand DeleteLibrarySourceCommand { get; }
+    public ICommand RefreshLibraryCommand { get; }
 
     private void AddHiresSource()
     {
@@ -332,6 +345,110 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         _audioService.Stop();
         SelectedPlaylistIndex = -1;
         OnPropertyChanged(nameof(PlaylistItems));
+    }
+
+    /// <summary>
+    /// Delete the selected item from the library:
+    /// - If it's a file — remove just that file.
+    /// - If it's a folder — check if it's a root source or a subfolder.
+    ///   Root source: remove the entire source.
+    ///   Subfolder: remove just that folder subtree.
+    /// </summary>
+    private void DeleteLibrarySource()
+    {
+        if (_selectedLibraryItem is not LibraryNode node) return;
+        if (string.IsNullOrEmpty(node.FullPath)) return;
+
+        var normalizedNodePath = Path.GetFullPath(node.FullPath);
+
+        // Build confirmation message
+        string message;
+        string title;
+
+        if (!node.IsFolder)
+        {
+            // File deletion
+            title = "Remove from Library";
+            message = $"Remove \"{node.Name}\" from the library?\n\nThis will remove the file from the library view only. The file will NOT be deleted from your disk.";
+        }
+        else
+        {
+            // Check if this folder is a root source
+            bool isRootSource = CurrentLibrary.Any(root =>
+                Path.GetFullPath(root.FullPath).Equals(normalizedNodePath, StringComparison.OrdinalIgnoreCase));
+
+            if (isRootSource)
+            {
+                title = "Remove Source Folder";
+                message = $"Remove the source folder \"{node.Name}\" and all its contents from the library?\n\nThis will remove the folder from the library view only. The files will NOT be deleted from your disk.";
+            }
+            else
+            {
+                title = "Remove Folder from Library";
+                message = $"Remove the folder \"{node.Name}\" and all its contents from the library?\n\nThis will remove the folder from the library view only. The files will NOT be deleted from your disk.";
+            }
+        }
+
+        var result = MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes) return;
+
+        // ── File deletion ──
+        if (!node.IsFolder)
+        {
+            _libraryService.RemoveFile(normalizedNodePath);
+            OnPropertyChanged(nameof(CurrentLibrary));
+            ApplyFilter();
+            return;
+        }
+
+        // ── Folder deletion ──
+        // Check if this folder is a root source (top-level in CurrentLibrary)
+        foreach (var root in CurrentLibrary)
+        {
+            var normalizedRootPath = Path.GetFullPath(root.FullPath);
+            if (normalizedRootPath.Equals(normalizedNodePath, StringComparison.OrdinalIgnoreCase))
+            {
+                // Selected node IS a root source — remove the entire source
+                _libraryService.RemoveSource(normalizedRootPath);
+                OnPropertyChanged(nameof(CurrentLibrary));
+                ApplyFilter();
+                return;
+            }
+        }
+
+        // Not a root source — remove just this folder subtree
+        _libraryService.RemoveFolder(normalizedNodePath);
+        OnPropertyChanged(nameof(CurrentLibrary));
+        ApplyFilter();
+    }
+
+    /// <summary>
+    /// Refresh the current library (Hires or Mp3) — rescan all sources for new files.
+    /// </summary>
+    private void RefreshLibrary()
+    {
+        if (IsRefreshing) return; // Prevent double-trigger
+
+        IsRefreshing = true;
+        IsScanning = true;
+
+        // Process events so the UI updates before potentially long scan
+        System.Windows.Forms.Application.DoEvents();
+
+        if (_isHiresView)
+        {
+            _libraryService.RescanHires();
+        }
+        else
+        {
+            _libraryService.RescanMp3();
+        }
+
+        IsScanning = false;
+        IsRefreshing = false;
+
+        OnPropertyChanged(nameof(CurrentLibrary));
+        ApplyFilter();
     }
 
     /// <summary>

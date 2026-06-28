@@ -378,6 +378,7 @@ public class AudioService : IDisposable
     public void Stop()
     {
         StopInternal();
+        _fftService.Reset();
         PlayStateChanged?.Invoke(false);
     }
 

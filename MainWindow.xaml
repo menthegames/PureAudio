@@ -466,6 +466,14 @@
                             VerticalAlignment="Center"
                             ToolTip="Remove selected source folder from library"
                             Command="{Binding ExpandedPanel.DeleteLibrarySourceCommand}" />
+                    <!-- Refresh Library Button (with margin to avoid misclick) -->
+                    <Button Content="{Binding ExpandedPanel.RefreshLibraryText}"
+                            Width="24" Height="24"
+                            FontSize="14"
+                            Margin="6,0,0,0"
+                            VerticalAlignment="Center"
+                            ToolTip="Rescan library sources for new files"
+                            Command="{Binding ExpandedPanel.RefreshLibraryCommand}" />
                 </StackPanel>
             </Border>
 

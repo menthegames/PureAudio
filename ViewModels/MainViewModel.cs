@@ -466,13 +466,11 @@ public class MainViewModel : INotifyPropertyChanged
         }
         else if (!_isPlaying)
         {
-            // Show placeholder bars when stopped (small random-like values for visual appeal)
-            var placeholder = new float[48];
-            for (int i = 0; i < 48; i++)
+            // Clear spectrum to zeros when stopped
+            if (_fftData.Any(v => v > 0))
             {
-                placeholder[i] = (float)(_rng.NextDouble() * 0.15);
+                SpectrumData = new float[48];
             }
-            SpectrumData = placeholder;
         }
     }
 

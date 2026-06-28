@@ -24,6 +24,9 @@ public class LibraryService
     public List<string> HiresSources { get; private set; } = new();
     public List<string> Mp3Sources { get; private set; } = new();
 
+    // Excluded paths (files and folders removed by user, persisted)
+    private readonly HashSet<string> _excludedPaths = new(StringComparer.OrdinalIgnoreCase);
+
     // Library trees
     public ObservableCollection<LibraryNode> HiresTree { get; } = new();
     public ObservableCollection<LibraryNode> Mp3Tree { get; } = new();
@@ -114,6 +117,11 @@ public class LibraryService
         var dirInfo = new DirectoryInfo(currentPath);
         if (!dirInfo.Exists) return null;
 
+        // Skip this folder entirely if it's in the excluded paths
+        var normalizedCurrentPath = Path.GetFullPath(currentPath);
+        if (_excludedPaths.Contains(normalizedCurrentPath))
+            return null;
+
         var node = new LibraryNode
         {
             Name = dirInfo.Name,
@@ -139,8 +147,9 @@ public class LibraryService
             var filePath = file.FullName;
             var normalizedPath = Path.GetFullPath(filePath);
 
-            // Skip if already indexed
+            // Skip if already indexed or excluded by user
             if (!_allFilePaths.Add(normalizedPath)) continue;
+            if (_excludedPaths.Contains(normalizedPath)) continue;
 
             var audioFile = MetadataService.ReadMetadata(filePath);
             var fileNode = new LibraryNode
@@ -181,6 +190,56 @@ public class LibraryService
                 ScanFolderToTree(source, HiresTree, LosslessExtensions, HiresFiles);
         }
 
+        foreach (var source in Mp3Sources)
+        {
+            if (Directory.Exists(source))
+                ScanFolderToTree(source, Mp3Tree, CompressedExtensions, Mp3Files);
+        }
+    }
+
+    /// <summary>
+    /// Rescan only Hires (lossless) sources. Preserves existing files and adds new ones.
+    /// </summary>
+    public void RescanHires()
+    {
+        // Collect existing file paths to preserve them
+        var existingFiles = new HashSet<string>(_allFilePaths.Where(f =>
+            HiresFiles.Any(h => Path.GetFullPath(h.AudioFile.FilePath).Equals(f, StringComparison.OrdinalIgnoreCase))),
+            StringComparer.OrdinalIgnoreCase);
+
+        // Clear only Hires trees and files (keep Mp3 intact)
+        HiresTree.Clear();
+        HiresFiles.Clear();
+
+        // Remove Hires files from the global path set (they'll be re-added during scan)
+        _allFilePaths.RemoveWhere(f => existingFiles.Contains(f));
+
+        // Re-scan all Hires sources
+        foreach (var source in HiresSources)
+        {
+            if (Directory.Exists(source))
+                ScanFolderToTree(source, HiresTree, LosslessExtensions, HiresFiles);
+        }
+    }
+
+    /// <summary>
+    /// Rescan only Mp3 (compressed) sources. Preserves existing files and adds new ones.
+    /// </summary>
+    public void RescanMp3()
+    {
+        // Collect existing file paths to preserve them
+        var existingFiles = new HashSet<string>(_allFilePaths.Where(f =>
+            Mp3Files.Any(m => Path.GetFullPath(m.AudioFile.FilePath).Equals(f, StringComparison.OrdinalIgnoreCase))),
+            StringComparer.OrdinalIgnoreCase);
+
+        // Clear only Mp3 trees and files (keep Hires intact)
+        Mp3Tree.Clear();
+        Mp3Files.Clear();
+
+        // Remove Mp3 files from the global path set (they'll be re-added during scan)
+        _allFilePaths.RemoveWhere(f => existingFiles.Contains(f));
+
+        // Re-scan all Mp3 sources
         foreach (var source in Mp3Sources)
         {
             if (Directory.Exists(source))
@@ -274,6 +333,127 @@ public class LibraryService
         return clone;
     }
 
+    /// <summary>
+    /// Remove a single audio file from the library (both tree and flat list).
+    /// The file will be excluded from future rescans.
+    /// </summary>
+    public void RemoveFile(string filePath)
+    {
+        var normalized = Path.GetFullPath(filePath);
+
+        // Remove from flat lists
+        var hiresItem = HiresFiles.FirstOrDefault(f => Path.GetFullPath(f.AudioFile.FilePath).Equals(normalized, StringComparison.OrdinalIgnoreCase));
+        if (hiresItem != null) HiresFiles.Remove(hiresItem);
+
+        var mp3Item = Mp3Files.FirstOrDefault(f => Path.GetFullPath(f.AudioFile.FilePath).Equals(normalized, StringComparison.OrdinalIgnoreCase));
+        if (mp3Item != null) Mp3Files.Remove(mp3Item);
+
+        // Remove from tree
+        RemoveNodeFromTree(HiresTree, normalized);
+        RemoveNodeFromTree(Mp3Tree, normalized);
+
+        // Remove from path set
+        _allFilePaths.Remove(normalized);
+
+        // Add to excluded paths so it won't reappear on rescan
+        _excludedPaths.Add(normalized);
+        SaveSources();
+    }
+
+    /// <summary>
+    /// Remove a folder (and all its contents) from the library tree.
+    /// Does NOT remove the root source — only removes the subtree.
+    /// The folder will be excluded from future rescans.
+    /// </summary>
+    public void RemoveFolder(string folderPath)
+    {
+        var normalized = Path.GetFullPath(folderPath);
+
+        // Collect all file paths under this folder to remove from flat lists and path set
+        var filesToRemove = _allFilePaths.Where(f => f.StartsWith(normalized + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();
+        foreach (var f in filesToRemove)
+        {
+            var hiresItem = HiresFiles.FirstOrDefault(h => Path.GetFullPath(h.AudioFile.FilePath).Equals(f, StringComparison.OrdinalIgnoreCase));
+            if (hiresItem != null) HiresFiles.Remove(hiresItem);
+
+            var mp3Item = Mp3Files.FirstOrDefault(m => Path.GetFullPath(m.AudioFile.FilePath).Equals(f, StringComparison.OrdinalIgnoreCase));
+            if (mp3Item != null) Mp3Files.Remove(mp3Item);
+
+            _allFilePaths.Remove(f);
+        }
+
+        // Remove the folder node from tree
+        RemoveNodeFromTree(HiresTree, normalized);
+        RemoveNodeFromTree(Mp3Tree, normalized);
+
+        // Add to excluded paths so it won't reappear on rescan
+        _excludedPaths.Add(normalized);
+        SaveSources();
+    }
+
+    /// <summary>
+    /// Recursively find and remove a node by its FullPath from the tree.
+    /// </summary>
+    private bool RemoveNodeFromTree(ObservableCollection<LibraryNode> tree, string normalizedPath)
+    {
+        for (int i = tree.Count - 1; i >= 0; i--)
+        {
+            var node = tree[i];
+            var nodePath = Path.GetFullPath(node.FullPath);
+
+            if (nodePath.Equals(normalizedPath, StringComparison.OrdinalIgnoreCase))
+            {
+                tree.RemoveAt(i);
+                return true;
+            }
+
+            if (node.IsFolder)
+            {
+                if (RemoveNodeFromTree(node.Children, normalizedPath))
+                {
+                    // If folder became empty after removal, remove it too
+                    if (node.Children.Count == 0)
+                    {
+                        tree.RemoveAt(i);
+                    }
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Remove a root source folder (either Hires or Mp3) and rebuild the tree.
+    /// Also clears any excluded paths that belong to this source.
+    /// </summary>
+    public void RemoveSource(string folderPath)
+    {
+        var normalized = Path.GetFullPath(folderPath);
+
+        bool removed = false;
+        if (HiresSources.RemoveAll(s => Path.GetFullPath(s).Equals(normalized, StringComparison.OrdinalIgnoreCase)) > 0)
+        {
+            removed = true;
+        }
+        if (Mp3Sources.RemoveAll(s => Path.GetFullPath(s).Equals(normalized, StringComparison.OrdinalIgnoreCase)) > 0)
+        {
+            removed = true;
+        }
+
+        if (removed)
+        {
+            // Remove any excluded paths that belong to this source (no longer needed)
+            _excludedPaths.RemoveWhere(p =>
+                p.Equals(normalized, StringComparison.OrdinalIgnoreCase) ||
+                p.StartsWith(normalized + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+
+            // Rebuild everything from scratch
+            RescanAll();
+            SaveSources();
+        }
+    }
+
     public void Clear()
     {
         HiresSources.Clear();
@@ -283,6 +463,7 @@ public class LibraryService
         HiresFiles.Clear();
         Mp3Files.Clear();
         _allFilePaths.Clear();
+        _excludedPaths.Clear();
         SaveSources();
     }
 
@@ -304,7 +485,8 @@ public class LibraryService
             var data = new SourcesData
             {
                 HiresSources = HiresSources,
-                Mp3Sources = Mp3Sources
+                Mp3Sources = Mp3Sources,
+                ExcludedPaths = _excludedPaths.ToList()
             };
             var json = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(GetSourcesFilePath(), json);
@@ -328,6 +510,11 @@ public class LibraryService
                 {
                     HiresSources = data.HiresSources ?? new List<string>();
                     Mp3Sources = data.Mp3Sources ?? new List<string>();
+                    if (data.ExcludedPaths != null)
+                    {
+                        foreach (var p in data.ExcludedPaths)
+                            _excludedPaths.Add(p);
+                    }
                 }
             }
         }
@@ -343,6 +530,7 @@ public class LibraryService
     {
         public List<string> HiresSources { get; set; } = new();
         public List<string> Mp3Sources { get; set; } = new();
+        public List<string>? ExcludedPaths { get; set; }
     }
 }
 

@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -37,9 +37,12 @@
     <EmbeddedResource Update="Properties\Strings.resx" />
   </ItemGroup>
 
-  <!-- Явно включаем иконку в сборку -->
+  <!-- Явно включаем иконку и сплэш-изображение в сборку -->
   <ItemGroup>
     <Content Include="music_icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="PureAudio.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
