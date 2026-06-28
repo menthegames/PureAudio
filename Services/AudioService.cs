@@ -374,14 +374,21 @@ public class AudioService : IDisposable
             _pausePosition = _audioFileReader?.CurrentTime ?? TimeSpan.Zero;
             System.Diagnostics.Debug.WriteLine($"PAUSE: saved position = {_pausePosition.TotalSeconds:F3}s");
 
-            // Stop the output device but keep it alive. We don't dispose it so that
-            // Resume() can call Play() to continue from where we left off.
-            // WasapiOut.Pause() can cause audio looping in Exclusive mode, so we use
-            // Stop() instead which stops playback but keeps the device initialized.
-            _outputDevice.Stop();
+            // Set flags BEFORE stopping to prevent OnPlaybackStopped from
+            // triggering Next() or Stop() when the device stops.
             _isPlaying = false;
             _isPaused = true;
             PlayStateChanged?.Invoke(false);
+
+            // Unsubscribe from PlaybackStopped temporarily to prevent stale events
+            _outputDevice.PlaybackStopped -= OnPlaybackStopped;
+
+            // Stop the output device. WasapiOut.Pause() can cause audio looping
+            // in Exclusive mode, so we use Stop() instead.
+            _outputDevice.Stop();
+
+            // Re-subscribe so that natural end-of-track still works
+            _outputDevice.PlaybackStopped += OnPlaybackStopped;
         }
     }
 
@@ -395,8 +402,7 @@ public class AudioService : IDisposable
             {
                 // Reset the reader to the saved pause position before resuming.
                 // The output device was stopped but not disposed, so we can just
-                // call Play() to resume. However, the reader position may have
-                // drifted due to buffering, so we reset it explicitly.
+                // call Play() to resume from where we left off.
                 if (_pausePosition < _audioFileReader.TotalTime)
                 {
                     _audioFileReader.CurrentTime = _pausePosition;
@@ -520,6 +526,13 @@ public class AudioService : IDisposable
         // has already started playing. Without this check, it would incorrectly
         // trigger Next() or Stop() on the new playback.
         if (!_isPlaying || _isPaused)
+            return;
+
+        // If the sender is not the current output device, ignore this event.
+        // This prevents stale PlaybackStopped events from a previous device
+        // (e.g., after Pause/Resume recreates the device) from triggering
+        // Next() or Stop() on the new playback.
+        if (sender != _outputDevice)
             return;
 
         if (_gaplessEnabled && _gaplessProvider != null)
