@@ -53,11 +53,15 @@ public partial class App : Application
             _splash.UpdateStatus("Preparing player...");
             DoEvents();
 
+            // Load saved named playlists
+            playlistService.LoadSavedPlaylistsFromJson();
+
             var mainWindow = new MainWindow(mainViewModel);
 
             // ── 5. Ensure minimum splash time (4 seconds) ──
             // Use async startup to keep UI responsive during the minimum delay
-            _ = StartupAsync(mainWindow, mainViewModel);
+            _ = StartupAsync(mainWindow, mainViewModel, playlistService);
+
         }
         catch (System.Exception ex)
         {
@@ -66,7 +70,8 @@ public partial class App : Application
         }
     }
 
-    private async Task StartupAsync(MainWindow mainWindow, MainViewModel mainViewModel)
+    private async Task StartupAsync(MainWindow mainWindow, MainViewModel mainViewModel, PlaylistService playlistService)
+
     {
         try
         {

@@ -156,6 +156,7 @@ public partial class MainWindow : Window
         _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _spectrumControl?.Dispose();
         _viewModel.SaveSettings();
-        _viewModel.ExpandedPanel.SavePlaylist();
+        _viewModel.ExpandedPanel.SaveCurrentPlaylist();
+
     }
 }

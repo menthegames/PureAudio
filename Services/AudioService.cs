@@ -196,6 +196,9 @@ public class AudioService : IDisposable
     private bool _isPaused;
     private float _volume = 0.5f; // Default 50% volume for exclusive mode
     private CancellationTokenSource? _gaplessCts;
+    private TimeSpan _pausePosition; // Position saved when pausing in Exclusive mode
+    private int _playbackId; // Incremented on each PlayInternal to ignore stale PlaybackStopped events
+
 
     public event Action<AudioFile>? TrackChanged;
     public event Action<bool>? PlayStateChanged;
@@ -265,6 +268,8 @@ public class AudioService : IDisposable
 
     private void PlayInternal(TimeSpan position)
     {
+        System.Diagnostics.Debug.WriteLine($"PlayInternal: requested position = {position.TotalSeconds:F3}s");
+        int currentPlaybackId = ++_playbackId;
         StopInternal();
 
         var currentItem = _playlistService.CurrentItem;
@@ -276,10 +281,18 @@ public class AudioService : IDisposable
             _fftService.Reset();
 
             _audioFileReader = new AudioFileReader(currentItem.AudioFile.FilePath);
+            System.Diagnostics.Debug.WriteLine($"PlayInternal: opened file, total={_audioFileReader.TotalTime.TotalSeconds:F3}s");
             // Inform FFT service about the actual sample rate for accurate frequency bin mapping
             _fftService.SetSampleRate(_audioFileReader.WaveFormat.SampleRate);
             if (position < _audioFileReader.TotalTime)
+            {
                 _audioFileReader.CurrentTime = position;
+                System.Diagnostics.Debug.WriteLine($"PlayInternal: set position to {_audioFileReader.CurrentTime.TotalSeconds:F3}s");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"PlayInternal: position {position.TotalSeconds:F3}s >= total {_audioFileReader.TotalTime.TotalSeconds:F3}s, starting from beginning");
+            }
 
             // In WASAPI Exclusive mode, the system mixer is bypassed so we need
             // software volume control via AudioFileReader.Volume.
@@ -348,16 +361,24 @@ public class AudioService : IDisposable
     {
         if (_wasapiExclusive)
         {
-            return new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Exclusive, 200);
+            return new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Exclusive, 100);
         }
-        return new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 200);
+        return new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
     }
 
     public void Pause()
     {
         if (_outputDevice != null && _isPlaying)
         {
-            _outputDevice.Pause();
+            // Save the current position before pausing
+            _pausePosition = _audioFileReader?.CurrentTime ?? TimeSpan.Zero;
+            System.Diagnostics.Debug.WriteLine($"PAUSE: saved position = {_pausePosition.TotalSeconds:F3}s");
+
+            // Stop the output device but keep it alive. We don't dispose it so that
+            // Resume() can call Play() to continue from where we left off.
+            // WasapiOut.Pause() can cause audio looping in Exclusive mode, so we use
+            // Stop() instead which stops playback but keeps the device initialized.
+            _outputDevice.Stop();
             _isPlaying = false;
             _isPaused = true;
             PlayStateChanged?.Invoke(false);
@@ -366,14 +387,33 @@ public class AudioService : IDisposable
 
     public void Resume()
     {
-        if (_outputDevice != null && _isPaused)
+        if (_isPaused)
         {
-            _outputDevice.Play();
-            _isPlaying = true;
-            _isPaused = false;
-            PlayStateChanged?.Invoke(true);
+            System.Diagnostics.Debug.WriteLine($"RESUME: restoring position = {_pausePosition.TotalSeconds:F3}s");
+
+            if (_outputDevice != null && _audioFileReader != null)
+            {
+                // Reset the reader to the saved pause position before resuming.
+                // The output device was stopped but not disposed, so we can just
+                // call Play() to resume. However, the reader position may have
+                // drifted due to buffering, so we reset it explicitly.
+                if (_pausePosition < _audioFileReader.TotalTime)
+                {
+                    _audioFileReader.CurrentTime = _pausePosition;
+                }
+                _outputDevice.Play();
+                _isPlaying = true;
+                _isPaused = false;
+                PlayStateChanged?.Invoke(true);
+            }
+            else
+            {
+                // Device was disposed (e.g., mode switch) — recreate from saved position
+                PlayInternal(_pausePosition);
+            }
         }
     }
+
 
     public void Stop()
     {
@@ -474,32 +514,37 @@ public class AudioService : IDisposable
 
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e)
     {
-        if (_isPlaying && !_isPaused)
-        {
-            if (_gaplessEnabled && _gaplessProvider != null)
-            {
-                // In gapless mode, the GaplessSampleProvider handles auto-advance seamlessly.
-                // PlaybackStopped fires when the output device runs out of data.
-                // This can happen in two scenarios:
-                // 1. The gapless provider has already switched to the next track (normal gapless transition)
-                // 2. The playlist has ended (no more tracks)
-                //
-                // Check if the gapless provider still has a valid reader with data remaining.
-                var currentReader = _gaplessProvider.CurrentReader;
-                if (currentReader != null && currentReader.CurrentTime < currentReader.TotalTime)
-                {
-                    // The gapless provider is still playing the next track — ignore this event.
-                    return;
-                }
+        // Ignore stale PlaybackStopped events from previous PlayInternal calls.
+        // When Pause() calls StopInternal() and then Resume() calls PlayInternal(),
+        // a PlaybackStopped event from the old device may arrive after the new one
+        // has already started playing. Without this check, it would incorrectly
+        // trigger Next() or Stop() on the new playback.
+        if (!_isPlaying || _isPaused)
+            return;
 
-                // No more data — stop playback
-                Stop();
-            }
-            else
+        if (_gaplessEnabled && _gaplessProvider != null)
+        {
+            // In gapless mode, the GaplessSampleProvider handles auto-advance seamlessly.
+            // PlaybackStopped fires when the output device runs out of data.
+            // This can happen in two scenarios:
+            // 1. The gapless provider has already switched to the next track (normal gapless transition)
+            // 2. The playlist has ended (no more tracks)
+            //
+            // Check if the gapless provider still has a valid reader with data remaining.
+            var currentReader = _gaplessProvider.CurrentReader;
+            if (currentReader != null && currentReader.CurrentTime < currentReader.TotalTime)
             {
-                // Auto-advance to next track (non-gapless: there will be a small gap)
-                Next();
+                // The gapless provider is still playing the next track — ignore this event.
+                return;
             }
+
+            // No more data — stop playback
+            Stop();
+        }
+        else
+        {
+            // Auto-advance to next track (non-gapless: there will be a small gap)
+            Next();
         }
     }
 

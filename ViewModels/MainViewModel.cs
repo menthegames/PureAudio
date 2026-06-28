@@ -270,6 +270,11 @@ public class MainViewModel : INotifyPropertyChanged
         {
             _audioService.Pause();
         }
+        else if (_audioService.IsPaused)
+        {
+            // Resume from where we paused
+            _audioService.Resume();
+        }
         else
         {
             // If a playlist item is selected in UI, use it instead of CurrentIndex

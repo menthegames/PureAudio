@@ -459,6 +459,9 @@
                              FontSize="11"
                              Margin="8,0,4,0"
                              VerticalAlignment="Center" />
+                    <!-- Separator between search and library management buttons -->
+                    <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"
+                               Margin="6,2,6,2" />
                     <!-- Remove Source Button -->
                     <Button Content="{Binding ExpandedPanel.DeleteLibrarySourceText}"
                             Width="24" Height="24"
@@ -466,11 +469,11 @@
                             VerticalAlignment="Center"
                             ToolTip="Remove selected source folder from library"
                             Command="{Binding ExpandedPanel.DeleteLibrarySourceCommand}" />
-                    <!-- Refresh Library Button (with margin to avoid misclick) -->
+                    <!-- Refresh Library Button -->
                     <Button Content="{Binding ExpandedPanel.RefreshLibraryText}"
                             Width="24" Height="24"
                             FontSize="14"
-                            Margin="6,0,0,0"
+                            Margin="4,0,0,0"
                             VerticalAlignment="Center"
                             ToolTip="Rescan library sources for new files"
                             Command="{Binding ExpandedPanel.RefreshLibraryCommand}" />
@@ -592,10 +595,42 @@
                             Command="{Binding ExpandedPanel.PlaylistDeleteCommand}" />
                     <Button Content="{Binding ExpandedPanel.ClearText}"
                             Height="28" Width="36"
+                            Margin="0,0,6,0"
                             FontSize="11"
                             Command="{Binding ExpandedPanel.PlaylistClearCommand}" />
+                    <!-- Spacer between queue controls and named playlist controls -->
+                    <Rectangle Width="16" Fill="Transparent" />
+                    <!-- Named playlist buttons -->
+                    <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"
+                               Margin="4,2" />
+                    <Button Content="{Binding ExpandedPanel.SavePlaylistText}"
+                            Height="28" Width="40"
+                            Margin="0,0,4,0"
+                            FontSize="11"
+                            ToolTip="Save current playlist"
+                            Command="{Binding ExpandedPanel.SavePlaylistCommand}" />
+                    <Button Content="{Binding ExpandedPanel.LoadPlaylistText}"
+                            Height="28" Width="40"
+                            Margin="0,0,4,0"
+                            FontSize="11"
+                            ToolTip="Load a saved playlist"
+                            Command="{Binding ExpandedPanel.LoadPlaylistCommand}" />
+                    <Button Content="{Binding ExpandedPanel.RenamePlaylistText}"
+                            Height="28" Width="52"
+                            Margin="0,0,4,0"
+                            FontSize="11"
+                            ToolTip="Rename current playlist"
+                            Command="{Binding ExpandedPanel.RenamePlaylistCommand}" />
+                    <Button Content="{Binding ExpandedPanel.DeletePlaylistText}"
+                            Height="28" Width="36"
+                            Margin="0,0,0,0"
+                            FontSize="11"
+                            ToolTip="Delete current playlist"
+                            Command="{Binding ExpandedPanel.DeletePlaylistCommand}" />
+
                 </StackPanel>
             </Border>
+
 
             <!-- ── Playlist ── -->
             <ListBox Grid.Row="1" Grid.Column="2"

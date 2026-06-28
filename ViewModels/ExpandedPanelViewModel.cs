@@ -7,6 +7,7 @@ using System.Windows.Input;
 using PureAudio.Helpers;
 using PureAudio.Models;
 using PureAudio.Services;
+using PureAudio.Views;
 
 namespace PureAudio.ViewModels;
 
@@ -46,12 +47,25 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         DeleteLibrarySourceCommand = new RelayCommand(_ => DeleteLibrarySource());
         RefreshLibraryCommand = new RelayCommand(_ => RefreshLibrary());
 
+        // Named playlist commands
+        SavePlaylistCommand = new RelayCommand(_ => SavePlaylist());
+        LoadPlaylistCommand = new RelayCommand(_ => LoadPlaylist());
+        RenamePlaylistCommand = new RelayCommand(_ => RenamePlaylist());
+        DeletePlaylistCommand = new RelayCommand(_ => DeletePlaylist());
+
+
         // Sync playlist selection with currently playing track
         _audioService.TrackChanged += OnTrackChanged;
 
         // Initialize filtered library with full tree
         ApplyFilter();
     }
+
+    /// <summary>
+    /// Whether there is a saved playlist selected that can be renamed/deleted.
+    /// </summary>
+    private bool CanManagePlaylist() => _playlistService.CurrentPlaylistName != null;
+
 
     private void OnTrackChanged(AudioFile track)
     {
@@ -233,6 +247,20 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
     public ICommand DoubleClickLibraryCommand { get; }
     public ICommand DeleteLibrarySourceCommand { get; }
     public ICommand RefreshLibraryCommand { get; }
+
+    // Named playlist commands
+    public ICommand SavePlaylistCommand { get; }
+    public ICommand LoadPlaylistCommand { get; }
+    public ICommand RenamePlaylistCommand { get; }
+    public ICommand DeletePlaylistCommand { get; }
+
+    // Button text for named playlist controls
+    public string SelectPlaylistText => "Sel";
+    public string SavePlaylistText => "Save";
+    public string LoadPlaylistText => "Load";
+    public string RenamePlaylistText => "Rename";
+    public string DeletePlaylistText => "Del";
+
 
     private void AddHiresSource()
     {
@@ -454,10 +482,119 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
     /// <summary>
     /// Save the current playlist to JSON (called on window close).
     /// </summary>
-    public void SavePlaylist()
+    public void SaveCurrentPlaylist()
     {
         _playlistService.SaveToJson();
     }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Named Playlist Operations
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Save the current playlist as a named playlist.
+    /// Always shows a dialog to enter/confirm the name, so the user can
+    /// save a new playlist even if a named playlist is currently loaded.
+    /// </summary>
+    private void SavePlaylist()
+    {
+        try
+        {
+            var initialName = _playlistService.CurrentPlaylistName ?? "";
+            var dialog = new InputDialog(initialText: initialName, title: "Save playlist as:");
+            if (dialog.ShowDialog() == true && !string.IsNullOrEmpty(dialog.InputText))
+            {
+                _playlistService.SaveCurrentAs(dialog.InputText);
+                OnPropertyChanged(nameof(PlaylistItems));
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"SavePlaylist error: {ex}");
+            MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>
+    /// Show a dialog to select and load a saved playlist.
+    /// </summary>
+    private void LoadPlaylist()
+    {
+        try
+        {
+            var names = _playlistService.GetPlaylistNames();
+            if (names.Count == 0)
+            {
+                MessageBox.Show("No saved playlists found.", "Load Playlist",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var dialog = new SelectPlaylistDialog(names);
+            if (dialog.ShowDialog() == true && dialog.SelectedPlaylistName != null)
+            {
+                _playlistService.LoadPlaylist(dialog.SelectedPlaylistName);
+                OnPropertyChanged(nameof(PlaylistItems));
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"LoadPlaylist error: {ex}");
+            MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>
+    /// Rename the currently loaded playlist.
+    /// </summary>
+    private void RenamePlaylist()
+    {
+        try
+        {
+            var currentName = _playlistService.CurrentPlaylistName;
+            if (currentName == null) return;
+
+            var dialog = new InputDialog(initialText: currentName, title: "Rename playlist:");
+            if (dialog.ShowDialog() == true && !string.IsNullOrEmpty(dialog.InputText) && dialog.InputText != currentName)
+            {
+                _playlistService.RenamePlaylist(currentName, dialog.InputText);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"RenamePlaylist error: {ex}");
+            MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>
+    /// Delete the currently loaded playlist with confirmation.
+    /// </summary>
+    private void DeletePlaylist()
+    {
+        try
+        {
+            var currentName = _playlistService.CurrentPlaylistName;
+            if (currentName == null) return;
+
+            var result = MessageBox.Show(
+                $"Delete playlist \"{currentName}\"?",
+                "Delete Playlist",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                _playlistService.DeletePlaylist(currentName);
+                OnPropertyChanged(nameof(PlaylistItems));
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"DeletePlaylist error: {ex}");
+        }
+    }
+
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -466,3 +603,5 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }
+
+
