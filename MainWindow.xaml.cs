@@ -20,6 +20,15 @@ public partial class MainWindow : Window
         _viewModel = viewModel;
         DataContext = _viewModel;
 
+        // Position window slightly above center to leave room for expanded panel
+        Loaded += (s, e) =>
+        {
+            var screenWidth = SystemParameters.PrimaryScreenWidth;
+            var screenHeight = SystemParameters.PrimaryScreenHeight;
+            Left = (screenWidth - Width) / 2;
+            Top = (screenHeight - Height) / 2 - 60; // shift up by 60px
+        };
+
         // Initialize the spectrum control inside the FFT container
         InitializeSpectrumControl();
 
@@ -99,6 +108,19 @@ public partial class MainWindow : Window
         }
     }
 
+    // ── Window Dragging ──
+
+    /// <summary>
+    /// Allows dragging the window by the top bar (since WindowStyle=None).
+    /// </summary>
+    private void TopBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.LeftButton == MouseButtonState.Pressed)
+        {
+            DragMove();
+        }
+    }
+
     // ── Library Tree Handlers ──
 
     private void LibraryTreeView_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
@@ -111,9 +133,9 @@ public partial class MainWindow : Window
 
     private void LibraryTreeView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (sender is TreeView treeView && treeView.SelectedItem is LibraryNode node && !node.IsFolder)
+        if (sender is TreeView treeView && treeView.SelectedItem is LibraryNode node)
         {
-            _viewModel.ExpandedPanel.AddToPlaylistCommand.Execute(node);
+            _viewModel.ExpandedPanel.DoubleClickLibraryCommand.Execute(node);
         }
     }
 

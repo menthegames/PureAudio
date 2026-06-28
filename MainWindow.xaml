@@ -7,9 +7,9 @@
         xmlns:helpers="clr-namespace:PureAudio.Helpers"
         xmlns:controls="clr-namespace:PureAudio.Controls"
         mc:Ignorable="d"
-        Title="PureAudio" Width="960"
+        Title="PureAudio" Width="1000"
         Height="{Binding WindowHeight, Mode=TwoWay}"
-        ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen"
+        ResizeMode="CanMinimize" WindowStartupLocation="Manual"
         Background="{DynamicResource BackgroundBrush}" WindowStyle="None" AllowsTransparency="False"
         FontFamily="Segoe UI Variable, Segoe UI, Helvetica, Arial, sans-serif"
         d:DataContext="{d:DesignInstance vm:MainViewModel}">
@@ -37,12 +37,13 @@
         <Border Grid.Row="0" Height="220"
                 Background="{DynamicResource BackgroundBrush}"
                 BorderBrush="{DynamicResource BorderBrush}"
-                BorderThickness="0,0,0,1">
+                BorderThickness="0,0,0,1"
+                MouseLeftButtonDown="TopBar_MouseLeftButtonDown">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="640" /> <!-- Display Area ~2/3 -->
-                    <ColumnDefinition Width="270" /> <!-- Control Panel -->
-                    <ColumnDefinition Width="50" />  <!-- Window buttons -->
+                    <ColumnDefinition Width="280" /> <!-- Control Panel -->
+                    <ColumnDefinition Width="80" />  <!-- Window buttons -->
                 </Grid.ColumnDefinitions>
 
                 <!-- ── Left Side: Display Area ── -->
@@ -114,7 +115,7 @@
                                FontSize="13"
                                FontWeight="Medium"
                                TextTrimming="CharacterEllipsis"
-                               Width="435"
+                               Width="445"
                                Margin="10,8,0,5"
                                HorizontalAlignment="Left"
                                VerticalAlignment="Top" />
@@ -135,18 +136,18 @@
                             <TextBlock Grid.Column="0"
                                        Text="{Binding ElapsedText}"
                                        Foreground="{DynamicResource AccentBrush}"
-                                       FontSize="26"
+                                       FontSize="22"
                                        FontFamily="Consolas"
                                        FontWeight="SemiBold" />
                             <TextBlock Grid.Column="2"
                                        Text="/"
                                        Foreground="{DynamicResource TextMutedBrush}"
-                                       FontSize="26"
+                                       FontSize="22"
                                        FontFamily="Consolas" />
                             <TextBlock Grid.Column="3"
                                        Text="{Binding TotalDurationText}"
                                        Foreground="{DynamicResource TextSecondaryBrush}"
-                                       FontSize="26"
+                                       FontSize="22"
                                        FontFamily="Consolas" />
                         </Grid>
 
@@ -290,7 +291,7 @@
 
                 <!-- ── Right Side: Control Panel ── -->
                 <Grid Grid.Column="1"
-                      Width="220" Height="260"
+                      Width="240" Height="260"
                       HorizontalAlignment="Center"
                       VerticalAlignment="Center">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
@@ -314,25 +315,25 @@
                         <StackPanel Orientation="Horizontal"
                                     HorizontalAlignment="Center"
                                     Margin="0,0,0,10">
-                            <Button Width="48" Height="44"
+                            <Button Width="52" Height="44"
                                     Margin="0,0,6,0"
                                     Content="◄◄"
                                     Command="{Binding PreviousCommand}"
                                     FontSize="13"
                                     Style="{StaticResource GhostButtonStyle}" />
-                            <Button Width="56" Height="44"
+                            <Button Width="60" Height="44"
                                     Margin="0,0,6,0"
                                     Style="{StaticResource AccentButtonStyle}"
                                     Content="{Binding PlayPauseIcon}"
                                     Command="{Binding PlayPauseCommand}"
                                     FontSize="16" />
-                            <Button Width="48" Height="44"
+                            <Button Width="52" Height="44"
                                     Margin="0,0,6,0"
                                     Content="■"
                                     Command="{Binding StopCommand}"
                                     FontSize="13"
                                     Style="{StaticResource GhostButtonStyle}" />
-                            <Button Width="48" Height="44"
+                            <Button Width="52" Height="44"
                                     Content="►►"
                                     Command="{Binding NextCommand}"
                                     FontSize="13"
@@ -454,10 +455,17 @@
                                Foreground="{DynamicResource AccentBrush}" />
                     <!-- Search Box -->
                     <TextBox Text="{Binding ExpandedPanel.SearchText, UpdateSourceTrigger=PropertyChanged}"
-                             Width="120" Height="24"
+                             Width="100" Height="24"
                              FontSize="11"
-                             Margin="12,0,0,0"
+                             Margin="8,0,4,0"
                              VerticalAlignment="Center" />
+                    <!-- Remove Source Button -->
+                    <Button Content="{Binding ExpandedPanel.DeleteLibrarySourceText}"
+                            Width="24" Height="24"
+                            FontSize="12"
+                            VerticalAlignment="Center"
+                            ToolTip="Remove selected source folder from library"
+                            Command="{Binding ExpandedPanel.DeleteLibrarySourceCommand}" />
                 </StackPanel>
             </Border>
 
@@ -474,12 +482,65 @@
                         <Setter Property="IsExpanded" Value="{Binding IsExpanded}" />
                         <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
                         <Setter Property="Background" Value="Transparent" />
-                        <Style.Triggers>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="{DynamicResource ButtonBgBrush}" />
-                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                            </Trigger>
-                        </Style.Triggers>
+                        <Setter Property="BorderThickness" Value="1" />
+                        <Setter Property="BorderBrush" Value="Transparent" />
+                        <Setter Property="Padding" Value="2,3" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="TreeViewItem">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <!-- Expand/Collapse toggle -->
+                                        <ToggleButton x:Name="Expander"
+                                                      Grid.Column="0"
+                                                      ClickMode="Press"
+                                                      IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}}"
+                                                      Style="{StaticResource ExpandCollapseToggleStyle}"
+                                                      Visibility="Hidden" />
+                                        <!-- Content area with selection highlight -->
+                                        <Border x:Name="Bd"
+                                                Grid.Column="1"
+                                                Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                Padding="{TemplateBinding Padding}"
+                                                SnapsToDevicePixels="True">
+                                            <ContentPresenter x:Name="PART_Header"
+                                                              ContentSource="Header"
+                                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                              SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" />
+                                        </Border>
+                                        <!-- Items host -->
+                                        <ItemsPresenter x:Name="ItemsHost"
+                                                        Grid.Row="1"
+                                                        Grid.Column="1"
+                                                        Visibility="Collapsed" />
+                                    </Grid>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="HasItems" Value="True">
+                                            <Setter TargetName="Expander" Property="Visibility" Value="Visible" />
+                                        </Trigger>
+                                        <Trigger Property="IsExpanded" Value="True">
+                                            <Setter TargetName="ItemsHost" Property="Visibility" Value="Visible" />
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="#383838" />
+                                            <Setter TargetName="Bd" Property="BorderBrush" Value="#C9A84C" />
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="#2E2E2E" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
                     </Style>
                 </TreeView.ItemContainerStyle>
                 <TreeView.ItemTemplate>
@@ -537,6 +598,41 @@
                      BorderBrush="{DynamicResource BorderBrush}"
                      Margin="5"
                      MouseDoubleClick="Playlist_MouseDoubleClick">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                        <Setter Property="BorderThickness" Value="1" />
+                        <Setter Property="BorderBrush" Value="Transparent" />
+                        <Setter Property="Padding" Value="4,3" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border x:Name="Bd"
+                                            Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                            Padding="{TemplateBinding Padding}"
+                                            SnapsToDevicePixels="True">
+                                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                          SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="#383838" />
+                                            <Setter TargetName="Bd" Property="BorderBrush" Value="#C9A84C" />
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="#2E2E2E" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <Grid>

@@ -1,0 +1,56 @@
+<Window x:Class="PureAudio.Views.SplashWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        Width="600" Height="350"
+        SizeToContent="WidthAndHeight">
+    <Border Background="#1A1A1A"
+            CornerRadius="12"
+            BorderBrush="#333333"
+            BorderThickness="1">
+        <Grid Margin="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Splash Image -->
+            <Image Grid.Row="0"
+                   x:Name="SplashImage"
+                   Width="600" Height="300"
+                   Stretch="Uniform"
+                   Margin="0,0,0,0" />
+
+            <!-- Loading indicator bar -->
+            <Border Grid.Row="1"
+                    Height="4"
+                    Margin="20,10,20,15"
+                    Background="#333333"
+                    CornerRadius="2">
+                <Border x:Name="ProgressBarFill"
+                        Width="0"
+                        HorizontalAlignment="Left"
+                        Height="4"
+                        Background="#C9A84C"
+                        CornerRadius="2" />
+            </Border>
+
+            <!-- Loading text -->
+            <TextBlock Grid.Row="1"
+                       x:Name="LoadingText"
+                       Text="Initializing..."
+                       Foreground="#888888"
+                       FontSize="11"
+                       FontFamily="Segoe UI, Helvetica, Arial, sans-serif"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Bottom"
+                       Margin="0,0,0,2" />
+        </Grid>
+    </Border>
+</Window>
