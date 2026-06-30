@@ -59,12 +59,13 @@ public class AudioService : IDisposable
     private FftCaptureProvider? _fftCaptureProvider;
     private readonly PlaylistService _playlistService;
     private readonly FftService _fftService;
-    private bool _wasapiExclusive;
+    private bool _bitPerfectMode;
     private bool _isPlaying;
     private bool _isPaused;
-    private float _volume = 0.5f; // Default 50% volume for exclusive mode
+    private float _volume = 0.5f; // User-requested volume (used in Shared mode, saved for restore)
+    private float _savedVolume = 0.5f; // Volume to restore when exiting Bit Perfect mode
     private CancellationTokenSource? _positionCts;
-    private TimeSpan _pausePosition; // Position saved when pausing in Exclusive mode
+    private TimeSpan _pausePosition; // Position saved when pausing
     private int _playbackId; // Incremented on each PlayInternal to ignore stale PlaybackStopped events
 
     public event Action<AudioFile>? TrackChanged;
@@ -73,10 +74,10 @@ public class AudioService : IDisposable
     public event Action<TimeSpan>? DurationChanged;
     public event Action<int>? BitrateChanged;
     public event Action<float>? VolumeChanged;
-    public event Action<bool>? WasapiModeChanged;
+    public event Action<bool>? BitPerfectModeChanged;
     public bool IsPlaying => _isPlaying;
     public bool IsPaused => _isPaused;
-    public bool WasapiExclusive => _wasapiExclusive;
+    public bool BitPerfectMode => _bitPerfectMode;
     public float Volume => _volume;
     public TimeSpan CurrentPosition => _audioFileReader?.CurrentTime ?? TimeSpan.Zero;
     public TimeSpan Duration => _audioFileReader?.TotalTime ?? TimeSpan.Zero;
@@ -94,20 +95,21 @@ public class AudioService : IDisposable
     /// </summary>
     public int CurrentBitDepth => _audioFileReader?.WaveFormat.BitsPerSample ?? 0;
 
+    /// <summary>
+    /// Set the user-requested volume level (0.0 to 1.0).
+    /// In Bit Perfect mode, the volume is always 1.0 (no DSP),
+    /// but we save the requested value for when the user exits Bit Perfect mode.
+    /// In Shared (normal) mode, the volume is applied to AudioFileReader
+    /// so the user can control volume within the app.
+    /// </summary>
     public void SetVolume(float volume)
     {
         _volume = Math.Clamp(volume, 0f, 1f);
-        if (_audioFileReader != null)
+        // In Bit Perfect mode, AudioFileReader.Volume stays at 1.0 (no DSP).
+        // In Shared mode, apply the volume to AudioFileReader immediately.
+        if (!_bitPerfectMode && _audioFileReader != null)
         {
-            // In Exclusive mode, WASAPI bypasses the system mixer, so the system
-            // volume slider has no effect. We apply software volume control here
-            // so the user can still adjust volume via the app's slider.
-            // In Shared mode, the system volume slider works, so we keep
-            // AudioFileReader.Volume at 1.0f (no software modification).
-            if (_wasapiExclusive)
-            {
-                _audioFileReader.Volume = _volume * _volume * _volume; // Cubic curve for smoother control
-            }
+            _audioFileReader.Volume = _volume;
         }
         VolumeChanged?.Invoke(_volume);
     }
@@ -118,26 +120,49 @@ public class AudioService : IDisposable
         _fftService = fftService;
     }
 
-    public void SetWasapiMode(bool exclusive)
+    /// <summary>
+    /// Enable or disable Bit Perfect mode.
+    /// Bit Perfect mode uses WASAPI Exclusive with Volume = 1.0 (no DSP).
+    /// Normal mode uses WASAPI Shared (system mixer handles volume).
+    /// </summary>
+    public void SetBitPerfectMode(bool enable)
     {
-        _wasapiExclusive = exclusive;
+        if (_bitPerfectMode == enable)
+            return;
+
+        _bitPerfectMode = enable;
+
         if (_isPlaying || _isPaused)
         {
             var position = CurrentPosition;
-            System.Diagnostics.Debug.WriteLine($"SetWasapiMode: switching to {(exclusive ? "Exclusive" : "Shared")}, position={position.TotalSeconds:F3}s");
+            System.Diagnostics.Debug.WriteLine($"SetBitPerfectMode: switching to {(enable ? "Bit Perfect (Exclusive)" : "Normal (Shared)")}, position={position.TotalSeconds:F3}s");
+
+            if (enable)
+            {
+                // Save current volume before entering Bit Perfect mode
+                _savedVolume = _volume;
+            }
+
             StopInternal();
 
             // When switching to Exclusive mode, the old WasapiOut may still hold
             // the audio device exclusively. A small delay ensures the device is
             // released before creating a new WasapiOut in Exclusive mode.
-            if (exclusive)
+            if (enable)
             {
                 System.Threading.Thread.Sleep(150);
             }
 
             PlayInternal(position);
         }
+
+        BitPerfectModeChanged?.Invoke(_bitPerfectMode);
     }
+
+    /// <summary>
+    /// Get the volume that should be restored when exiting Bit Perfect mode.
+    /// </summary>
+    public float GetSavedVolume() => _savedVolume;
 
     public void Play()
     {
@@ -188,20 +213,12 @@ public class AudioService : IDisposable
                 System.Diagnostics.Debug.WriteLine($"PlayInternal: position {position.TotalSeconds:F3}s >= total {_audioFileReader.TotalTime.TotalSeconds:F3}s, starting from beginning");
             }
 
-            // In WASAPI Exclusive mode, the system mixer is bypassed, so the
-            // system volume slider has no effect. We apply software volume
-            // control via AudioFileReader.Volume so the user can still adjust
-            // volume through the app's slider.
-            // In Shared mode, the system volume slider works, so we keep
-            // AudioFileReader.Volume at 1.0f (no software modification).
-            if (_wasapiExclusive)
-            {
-                _audioFileReader.Volume = _volume * _volume * _volume; // Cubic curve for smoother control
-            }
-            else
-            {
-                _audioFileReader.Volume = 1.0f;
-            }
+            // In Bit Perfect mode (WASAPI Exclusive), the system mixer is bypassed.
+            // We set Volume = 1.0 to ensure no DSP modification — pure bit-perfect signal.
+            // The user should adjust volume on their DAC/amplifier.
+            // In Normal mode (WASAPI Shared), apply the user's volume to AudioFileReader
+            // so the app's volume slider controls the output level.
+            _audioFileReader.Volume = _bitPerfectMode ? 1.0f : _volume;
 
             // Wrap with FFT capture provider
             _fftCaptureProvider = new FftCaptureProvider(_audioFileReader, _fftService);
@@ -229,14 +246,14 @@ public class AudioService : IDisposable
 
     private IWavePlayer CreateWasapiOutput()
     {
-        if (_wasapiExclusive)
+        if (_bitPerfectMode)
         {
-            System.Diagnostics.Debug.WriteLine("CreateWasapiOutput: creating Exclusive WasapiOut");
+            System.Diagnostics.Debug.WriteLine("CreateWasapiOutput: creating Exclusive WasapiOut (Bit Perfect mode)");
             try
             {
-                var wasapi = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Exclusive, 100);
+                var exclusiveWasapi = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Exclusive, 100);
                 System.Diagnostics.Debug.WriteLine("CreateWasapiOutput: Exclusive WasapiOut created successfully");
-                return wasapi;
+                return exclusiveWasapi;
             }
             catch (Exception ex)
             {
@@ -244,11 +261,11 @@ public class AudioService : IDisposable
                 System.Diagnostics.Debug.WriteLine($"Stack: {ex.StackTrace}");
                 // Fall back to Shared mode
                 System.Diagnostics.Debug.WriteLine("CreateWasapiOutput: falling back to Shared WasapiOut");
-                _wasapiExclusive = false;
-                WasapiModeChanged?.Invoke(false);
-                var wasapi = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+                _bitPerfectMode = false;
+                BitPerfectModeChanged?.Invoke(false);
+                var fallbackWasapi = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
                 System.Diagnostics.Debug.WriteLine("CreateWasapiOutput: Shared WasapiOut created as fallback");
-                return wasapi;
+                return fallbackWasapi;
             }
         }
         System.Diagnostics.Debug.WriteLine("CreateWasapiOutput: creating Shared WasapiOut");

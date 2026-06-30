@@ -19,6 +19,7 @@
                 <ResourceDictionary Source="Resources/Styles.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BoolToVis" />
+            <helpers:ColorToBrushConverter x:Key="ColorToBrushConverter" />
         </ResourceDictionary>
     </Window.Resources>
 
@@ -165,11 +166,11 @@
                                     CornerRadius="4"
                                     Padding="6,3"
                                     Margin="0,0,6,0">
-                                <TextBlock Text="{Binding WasapiModeText}"
+                                <TextBlock Text="{Binding BitPerfectButtonText}"
                                            FontSize="10"
                                            FontWeight="Medium">
                                     <TextBlock.Foreground>
-                                        <SolidColorBrush Color="{Binding WasapiIndicatorColor}" />
+                                        <SolidColorBrush Color="{Binding BitPerfectIndicatorColor}" />
                                     </TextBlock.Foreground>
                                 </TextBlock>
                             </Border>
@@ -282,15 +283,18 @@
                       VerticalAlignment="Center">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
 
-                        <!-- Row 1: WASAPI Exclusive/Shared + Bit-Perfect Indicator — left-aligned with transport controls -->
+                        <!-- Row 1: Bit Perfect toggle + Bit-Perfect Indicator — left-aligned with transport controls -->
                         <StackPanel Orientation="Horizontal"
                                     HorizontalAlignment="Left"
                                     Margin="3,0,0,10">
-                            <Button Width="108" Height="30"
+                            <Button Width="120" Height="30"
                                     Margin="0,0,8,0"
-                                    Content="{Binding WasapiModeText}"
-                                    Command="{Binding ToggleWasapiCommand}"
-                                    FontSize="11" />
+                                    Content="{Binding BitPerfectButtonText}"
+                                    Command="{Binding BitPerfectCommand}"
+                                    FontSize="11"
+                                    FontWeight="Bold"
+                                    Foreground="{Binding BitPerfectButtonColor, Converter={StaticResource ColorToBrushConverter}}"
+                                    BorderBrush="{Binding BitPerfectBorderColor, Converter={StaticResource ColorToBrushConverter}}" />
                             <Border Background="{DynamicResource SurfaceBrush}"
                                     BorderBrush="Transparent"
                                     BorderThickness="0"

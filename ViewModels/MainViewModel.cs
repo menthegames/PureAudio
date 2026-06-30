@@ -21,7 +21,7 @@ public class MainViewModel : INotifyPropertyChanged
     private TimeSpan _totalDuration;
     private int _bitrate;
     private bool _isPlaying;
-    private bool _wasapiExclusive;
+    private bool _bitPerfectMode;
     private bool _isExpanded;
     private double _windowHeight = 220;
     private bool _isHiresMode;
@@ -54,7 +54,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         // Load persisted settings (lightweight — just reads JSON)
         var settings = _settingsService.Current;
-        _wasapiExclusive = settings.WasapiExclusive;
+        _bitPerfectMode = settings.BitPerfectEnabled;
         _isExpanded = settings.IsExpanded;
         _isHiresMode = settings.IsHiresMode;
         _volumeValue = settings.Volume;
@@ -66,14 +66,14 @@ public class MainViewModel : INotifyPropertyChanged
         _audioService.DurationChanged += OnDurationChanged;
         _audioService.BitrateChanged += OnBitrateChanged;
         _audioService.VolumeChanged += OnVolumeChanged;
-        _audioService.WasapiModeChanged += OnWasapiModeChanged;
+        _audioService.BitPerfectModeChanged += OnBitPerfectModeChanged;
 
         // Commands
         PlayPauseCommand = new RelayCommand(_ => PlayPause());
         StopCommand = new RelayCommand(_ => _audioService.Stop());
         NextCommand = new RelayCommand(_ => _audioService.Next());
         PreviousCommand = new RelayCommand(_ => _audioService.Previous());
-        ToggleWasapiCommand = new RelayCommand(_ => ToggleWasapi());
+        BitPerfectCommand = new RelayCommand(_ => ToggleBitPerfect());
         ToggleExpandedCommand = new RelayCommand(_ => ToggleExpanded());
         ToggleLibraryModeCommand = new RelayCommand(_ => ToggleLibraryMode());
         AddSourceCommand = new RelayCommand(_ => AddSource());
@@ -130,10 +130,23 @@ public class MainViewModel : INotifyPropertyChanged
         set { _isPlaying = value; OnPropertyChanged(); }
     }
 
-    public bool WasapiExclusive
+    public bool IsBitPerfectMode
     {
-        get => _wasapiExclusive;
-        set { _wasapiExclusive = value; OnPropertyChanged(); OnPropertyChanged(nameof(WasapiModeText)); }
+        get => _bitPerfectMode;
+        set
+        {
+            _bitPerfectMode = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(BitPerfectButtonText));
+            OnPropertyChanged(nameof(BitPerfectButtonColor));
+            OnPropertyChanged(nameof(BitPerfectBorderColor));
+            OnPropertyChanged(nameof(IsVolumeActive));
+            OnPropertyChanged(nameof(VolumeTextColor));
+            OnPropertyChanged(nameof(BitPerfectIndicatorColor));
+            OnPropertyChanged(nameof(IsBitPerfectActive));
+            OnPropertyChanged(nameof(BitDepthColor));
+            OnPropertyChanged(nameof(SampleRateColor));
+        }
     }
 
     public bool IsExpanded
@@ -156,7 +169,20 @@ public class MainViewModel : INotifyPropertyChanged
         set { _isHiresMode = value; OnPropertyChanged(); }
     }
 
-    public string WasapiModeText => _wasapiExclusive ? "WASAPI Exclusive" : "WASAPI Shared";
+    /// <summary>
+    /// Button text for Bit Perfect toggle.
+    /// </summary>
+    public string BitPerfectButtonText => "Bit Perfect";
+
+    /// <summary>
+    /// Color for the Bit Perfect button text — gold when active, gray when inactive.
+    /// </summary>
+    public string BitPerfectButtonColor => _bitPerfectMode ? "#C9A84C" : "#555555";
+
+    /// <summary>
+    /// Color for the Bit Perfect button border — gold when active, gray when inactive.
+    /// </summary>
+    public string BitPerfectBorderColor => _bitPerfectMode ? "#C9A84C" : "#4A4A4A";
 
     /// <summary>
     /// Bit depth text (e.g. "24 bit", "16 bit"). Empty when no track is playing.
@@ -206,19 +232,25 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Whether a track is playing (activates the bit-perfect indicator colors).
+    /// Whether bit-perfect indicators should be gold (active).
+    /// True when Bit Perfect mode is ON and a track is playing.
     /// </summary>
-    public bool IsBitPerfectActive => _isPlaying && _audioService.CurrentSampleRate > 0;
+    public bool IsBitPerfectActive => _bitPerfectMode && _isPlaying && _audioService.CurrentSampleRate > 0;
 
     /// <summary>
-    /// Color for bit depth text — bright gold when active, gray when inactive.
+    /// Color for bit depth text — bright gold when bit-perfect active, gray when inactive.
     /// </summary>
     public string BitDepthColor => IsBitPerfectActive ? "#C9A84C" : "#555555";
 
     /// <summary>
-    /// Color for sample rate text — medium gold when active, gray when inactive.
+    /// Color for sample rate text — medium gold when bit-perfect active, gray when inactive.
     /// </summary>
     public string SampleRateColor => IsBitPerfectActive ? "#A88A3E" : "#555555";
+
+    /// <summary>
+    /// Color for the Bit Perfect indicator badge — gold when active, gray when inactive.
+    /// </summary>
+    public string BitPerfectIndicatorColor => IsBitPerfectActive ? "#C9A84C" : "#555555";
 
     public string PlayPauseIcon => _isPlaying ? "❚❚" : "►";
     public string StatusText
@@ -235,9 +267,6 @@ public class MainViewModel : INotifyPropertyChanged
     // Hires/MP3 indicator colors — gold accent when active
     public string HiresIndicatorColor => _isHiresMode ? "#C9A84C" : "#555555";
     public string Mp3IndicatorColor => !_isHiresMode ? "#C9A84C" : "#555555";
-
-    // WASAPI indicator color — gold when Exclusive, gray when Shared
-    public string WasapiIndicatorColor => _wasapiExclusive ? "#C9A84C" : "#555555";
 
     public string LibraryModeText => _isHiresMode ? "Lossless" : "Compressed";
     public string AddSourceText => "Add Source";
@@ -290,9 +319,17 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public bool IsVolumeActive => _wasapiExclusive;
+    /// <summary>
+    /// Volume slider is only active in Normal (Shared) mode.
+    /// In Bit Perfect mode, volume is locked at 100% (no DSP).
+    /// </summary>
+    public bool IsVolumeActive => !_bitPerfectMode;
 
-    public string VolumeTextColor => _wasapiExclusive ? "#C9A84C" : "#555555";
+    /// <summary>
+    /// Volume label color — gold when volume is adjustable (Normal mode),
+    /// gray when locked (Bit Perfect mode).
+    /// </summary>
+    public string VolumeTextColor => _bitPerfectMode ? "#555555" : "#C9A84C";
 
     // Expanded Panel ViewModel
     public ExpandedPanelViewModel ExpandedPanel { get; }
@@ -302,7 +339,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand StopCommand { get; }
     public ICommand NextCommand { get; }
     public ICommand PreviousCommand { get; }
-    public ICommand ToggleWasapiCommand { get; }
+    public ICommand BitPerfectCommand { get; }
     public ICommand ToggleExpandedCommand { get; }
     public ICommand ToggleLibraryModeCommand { get; }
     public ICommand AddSourceCommand { get; }
@@ -332,14 +369,54 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private void ToggleWasapi()
+    private async void ToggleBitPerfect()
     {
-        WasapiExclusive = !WasapiExclusive;
-        _audioService.SetWasapiMode(WasapiExclusive);
-        OnPropertyChanged(nameof(IsVolumeActive));
-        OnPropertyChanged(nameof(VolumeTextColor));
-        OnPropertyChanged(nameof(WasapiIndicatorColor));
-        _settingsService.Update(s => s.WasapiExclusive = _wasapiExclusive);
+        if (_bitPerfectMode)
+        {
+            // Exiting Bit Perfect mode — restore previous volume
+            float savedVolume = _audioService.GetSavedVolume();
+            _volumeValue = savedVolume;
+            OnPropertyChanged(nameof(VolumeValue));
+            _audioService.SetBitPerfectMode(false);
+            _settingsService.Update(s => s.BitPerfectEnabled = false);
+        }
+        else
+        {
+            // Entering Bit Perfect mode — show warning if not accepted yet
+            var settings = _settingsService.Current;
+            if (!settings.WarningAccepted)
+            {
+                // Show warning dialog
+                string message = "Для максимального качества звука громкость будет установлена на 100%.\n\n" +
+                                 "Пожалуйста, отрегулируйте громкость на вашем усилителе или ЦАП до комфортного уровня перед продолжением.\n\n" +
+                                 "В режиме Bit Perfect ползунок громкости отключается для обеспечения чистого, неискажённого аудиосигнала.";
+
+                var dialog = new Views.InputDialog("Bit Perfect Mode", message, "Больше не показывать это предупреждение");
+
+                bool? result = dialog.ShowDialog();
+                
+                if (result != true)
+                {
+                    // User cancelled — don't switch to Bit Perfect mode
+                    return;
+                }
+
+                // Save warning acceptance
+                if (dialog.IsCheckBoxChecked)
+                {
+                    _settingsService.Update(s => s.WarningAccepted = true);
+                }
+            }
+
+            // Save current volume before entering Bit Perfect mode
+            _audioService.SetVolume((float)_volumeValue);
+            _audioService.SetBitPerfectMode(true);
+            _settingsService.Update(s => s.BitPerfectEnabled = true);
+
+            // Visually set the slider to 100% so the user sees that volume is locked at max
+            _volumeValue = 1.0;
+            OnPropertyChanged(nameof(VolumeValue));
+        }
     }
 
     private void ToggleExpanded()
@@ -402,6 +479,9 @@ public class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(IsBitPerfectActive));
         OnPropertyChanged(nameof(BitDepthColor));
         OnPropertyChanged(nameof(SampleRateColor));
+        OnPropertyChanged(nameof(BitPerfectIndicatorColor));
+        OnPropertyChanged(nameof(BitPerfectButtonColor));
+        OnPropertyChanged(nameof(BitPerfectBorderColor));
     }
 
     private void OnPlayStateChanged(bool playing)
@@ -415,6 +495,9 @@ public class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(IsBitPerfectActive));
         OnPropertyChanged(nameof(BitDepthColor));
         OnPropertyChanged(nameof(SampleRateColor));
+        OnPropertyChanged(nameof(BitPerfectIndicatorColor));
+        OnPropertyChanged(nameof(BitPerfectButtonColor));
+        OnPropertyChanged(nameof(BitPerfectBorderColor));
     }
 
     /// <summary>
@@ -461,19 +544,14 @@ public class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(VolumeValue));
     }
 
-    private void OnWasapiModeChanged(bool exclusive)
+    private void OnBitPerfectModeChanged(bool enabled)
     {
         // Called when AudioService falls back from Exclusive to Shared mode
         // (e.g., when the audio device doesn't support Exclusive mode).
         System.Windows.Application.Current.Dispatcher.Invoke(() =>
         {
-            _wasapiExclusive = exclusive;
-            OnPropertyChanged(nameof(WasapiExclusive));
-            OnPropertyChanged(nameof(WasapiModeText));
-            OnPropertyChanged(nameof(IsVolumeActive));
-            OnPropertyChanged(nameof(VolumeTextColor));
-            OnPropertyChanged(nameof(WasapiIndicatorColor));
-            _settingsService.Update(s => s.WasapiExclusive = exclusive);
+            IsBitPerfectMode = enabled;
+            _settingsService.Update(s => s.BitPerfectEnabled = enabled);
         });
     }
 
@@ -585,7 +663,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Called after the window is shown. Loads playlist and library in background,
-    /// then applies WASAPI Exclusive mode if it was enabled before.
+    /// then applies Bit Perfect mode if it was enabled before.
     /// </summary>
     public async void StartBackgroundLoading()
     {
@@ -599,27 +677,32 @@ public class MainViewModel : INotifyPropertyChanged
         await Task.Run(() => LoadLibraryInBackground());
         IsLoadingLibrary = false;
 
-        // Step 3: If WASAPI Exclusive was enabled before, try to switch to it
-        // with a timeout. If it fails, stay in Shared mode.
-        if (_wasapiExclusive)
+        // Step 3: If Bit Perfect mode was enabled before, try to switch to it
+        // with a timeout. If it fails, stay in Normal mode.
+        if (_bitPerfectMode)
         {
-            LoadingStatusText = "Switching to WASAPI Exclusive...";
-            bool success = await TrySwitchToWasapiExclusiveAsync();
+            LoadingStatusText = "Switching to Bit Perfect mode...";
+            bool success = await TrySwitchToBitPerfectAsync();
             if (success)
             {
                 _audioService.SetVolume((float)_volumeValue);
+                // Visually set the slider to 100% in Bit Perfect mode
+                _volumeValue = 1.0;
+                OnPropertyChanged(nameof(VolumeValue));
             }
             else
             {
-                // Failed to switch — stay in Shared mode, update UI
-                _wasapiExclusive = false;
-                OnPropertyChanged(nameof(WasapiExclusive));
-                OnPropertyChanged(nameof(WasapiModeText));
+                // Failed to switch — stay in Normal mode, update UI
+                _bitPerfectMode = false;
+                OnPropertyChanged(nameof(IsBitPerfectMode));
+                OnPropertyChanged(nameof(BitPerfectButtonText));
+                OnPropertyChanged(nameof(BitPerfectButtonColor));
+                OnPropertyChanged(nameof(BitPerfectBorderColor));
                 OnPropertyChanged(nameof(IsVolumeActive));
                 OnPropertyChanged(nameof(VolumeTextColor));
-                OnPropertyChanged(nameof(WasapiIndicatorColor));
-                _settingsService.Update(s => s.WasapiExclusive = false);
-                LoadingStatusText = "WASAPI Exclusive unavailable, using Shared mode";
+                OnPropertyChanged(nameof(BitPerfectIndicatorColor));
+                _settingsService.Update(s => s.BitPerfectEnabled = false);
+                LoadingStatusText = "Bit Perfect mode unavailable, using Normal mode";
             }
         }
 
@@ -681,10 +764,10 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Try to switch to WASAPI Exclusive mode with a timeout.
+    /// Try to switch to Bit Perfect mode with a timeout.
     /// Returns true if successful, false if timeout or error.
     /// </summary>
-    private async Task<bool> TrySwitchToWasapiExclusiveAsync()
+    private async Task<bool> TrySwitchToBitPerfectAsync()
     {
         var tcs = new TaskCompletionSource<bool>();
 
@@ -693,12 +776,12 @@ public class MainViewModel : INotifyPropertyChanged
         {
             try
             {
-                _audioService.SetWasapiMode(true);
+                _audioService.SetBitPerfectMode(true);
                 tcs.TrySetResult(true);
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"WASAPI Exclusive switch failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Bit Perfect mode switch failed: {ex.Message}");
                 tcs.TrySetResult(false);
             }
         });
@@ -713,8 +796,7 @@ public class MainViewModel : INotifyPropertyChanged
         }
         else
         {
-            System.Diagnostics.Debug.WriteLine("WASAPI Exclusive switch timed out after 5s");
-            // Abort the thread (it will fail gracefully)
+            System.Diagnostics.Debug.WriteLine("Bit Perfect mode switch timed out after 5s");
             return false;
         }
     }

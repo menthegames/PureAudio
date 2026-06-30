@@ -1,13 +1,30 @@
-# Task Progress - Hi-Fi Redesign
+# Task Progress: Bit-Perfect Volume Management Refactoring
 
-## Todo
-- [x] Read SKILL.md and analyze requirements
-- [x] Read all existing source files
-- [ ] **Phase 1: Color Palette & Resources** - Update Styles.xaml with Hi-Fi colors (off-black, gold accent, no red/blue)
-- [ ] **Phase 2: Typography** - Add premium font, fix sizes/weights
-- [ ] **Phase 3: Button Styling** - Flat design, 8px radius, glow on hover, pressed feedback
-- [ ] **Phase 4: Spectrum Control Rewrite** - Segmented bars with spring physics animation
-- [ ] **Phase 5: MainWindow Layout** - Apply asymmetric blocks, minimalist Hi-Fi aesthetic
-- [ ] **Phase 6: MainWindow.xaml.cs** - Update spectrum control initialization, remove red colors
-- [ ] **Phase 7: MainViewModel** - Update color properties (remove orange, use gold)
-- [ ] **Phase 8: Build & Verify** - Ensure project compiles and runs
+## Цель
+Переработать управление громкостью: убрать переключатель WASAPI Exclusive/Shared из UI, заменить на кнопку "Bit Perfect", реализовать честный bit-perfect режим без DSP-регулировки громкости.
+
+## План
+
+- [x] Проанализировать текущую архитектуру (AudioService, MainViewModel, MainWindow.xaml)
+- [x] Согласовать новую архитектуру с пользователем
+- [ ] **Шаг 1:** AudioService.cs — переработать логику:
+  - Убрать кубическую кривую громкости
+  - Добавить метод `SetBitPerfectMode(bool enable)` 
+  - В bit-perfect режиме: Volume = 1.0 (без DSP)
+  - В обычном режиме: Volume = 1.0 (Shared, системный микшер)
+  - При переключении в bit-perfect: устанавливать громкость 100%, сохранять предыдущее значение для возврата
+- [ ] **Шаг 2:** AudioSettings.cs — добавить поля:
+  - `BitPerfectEnabled` (bool)
+  - `WarningAccepted` (bool) — для галочки "больше не показывать"
+  - `PreviousVolume` (double) — для восстановления громкости при выходе из bit-perfect
+- [ ] **Шаг 3:** MainViewModel.cs — переработать:
+  - Убрать `WasapiExclusive`, `ToggleWasapiCommand`, `WasapiModeText`
+  - Добавить `IsBitPerfectMode`, `BitPerfectCommand`
+  - Логика блокировки ползунка в bit-perfect режиме
+  - Индикация: золотой/серый для кнопки и битности/частоты
+  - Диалог предупреждения при первом включении
+- [ ] **Шаг 4:** MainWindow.xaml — обновить UI:
+  - Заменить кнопку WASAPI Exclusive/Shared на кнопку "Bit Perfect"
+  - Ползунок громкости: блокируется в bit-perfect режиме
+  - Индикаторы битности/частоты: золотые в bit-perfect, серые в обычном режиме
+- [ ] **Шаг 5:** Проверить и оттестировать изменения
