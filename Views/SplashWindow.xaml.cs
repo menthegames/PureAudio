@@ -18,14 +18,16 @@ public partial class SplashWindow : Window
     {
         InitializeComponent();
 
-        // Load the splash image
-        var imagePath = System.IO.Path.Combine(
-            AppDomain.CurrentDomain.BaseDirectory,
-            "PureAudio.png");
-        if (System.IO.File.Exists(imagePath))
+        // Load the splash image from embedded resources
+        try
         {
-            var bitmap = new BitmapImage(new Uri(imagePath));
+            var uri = new Uri("pack://application:,,,/PureAudio.png");
+            var bitmap = new BitmapImage(uri);
             SplashImage.Source = bitmap;
+        }
+        catch
+        {
+            // Ignore if image resource is missing
         }
 
         // Animate the progress bar smoothly

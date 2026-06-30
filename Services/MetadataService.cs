@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.IO;
 using PureAudio.Models;
 using TagLib;
@@ -93,31 +92,16 @@ public static class MetadataService
             long fileSizeBytes = fileInfo.Length;
             double durationSeconds = tagFile.Properties.Duration.TotalSeconds;
 
-            // File logging for debugging
-            var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "PureAudio", "bitrate_debug.txt");
-            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(logPath)!);
-            System.IO.File.AppendAllText(logPath,
-                $"[BitrateDebug] filePath={filePath}\r\n" +
-                $"  fileSizeBytes={fileSizeBytes}\r\n" +
-                $"  durationSeconds={durationSeconds}\r\n");
-
             if (durationSeconds > 0)
             {
                 // Bitrate = file size in bits / duration in seconds / 1000
                 int bitrate = (int)((fileSizeBytes * 8) / durationSeconds / 1000);
-                System.IO.File.AppendAllText(logPath, $"  computed bitrate={bitrate} kbps\r\n");
                 if (bitrate > 0)
                     return bitrate;
             }
-            else
-            {
-                System.IO.File.AppendAllText(logPath, $"  durationSeconds <= 0, cannot compute\r\n");
-            }
         }
-        catch (Exception ex)
+        catch
         {
-            var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "PureAudio", "bitrate_debug.txt");
-            System.IO.File.AppendAllText(logPath, $"[BitrateDebug] exception: {ex.Message}\r\n");
         }
         return 0;
     }

@@ -173,20 +173,6 @@
                                     </TextBlock.Foreground>
                                 </TextBlock>
                             </Border>
-                            <Border Background="{DynamicResource SurfaceBrush}"
-                                    BorderBrush="Transparent"
-                                    BorderThickness="0"
-                                    CornerRadius="4"
-                                    Padding="6,3"
-                                    Margin="0,0,6,0">
-                                <TextBlock Text="{Binding GaplessText}"
-                                           FontSize="10"
-                                           FontWeight="Medium">
-                                    <TextBlock.Foreground>
-                                        <SolidColorBrush Color="{Binding GaplessTextColor}" />
-                                    </TextBlock.Foreground>
-                                </TextBlock>
-                            </Border>
                         </WrapPanel>
 
                         <!-- Play/Pause/Stop Indicators -->
@@ -296,19 +282,47 @@
                       VerticalAlignment="Center">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
 
-                        <!-- Row 1: WASAPI + Gapless -->
+                        <!-- Row 1: WASAPI Exclusive/Shared + Bit-Perfect Indicator — left-aligned with transport controls -->
                         <StackPanel Orientation="Horizontal"
-                                    HorizontalAlignment="Center"
-                                    Margin="0,0,0,10">
+                                    HorizontalAlignment="Left"
+                                    Margin="3,0,0,10">
                             <Button Width="108" Height="30"
-                                    Margin="0,0,6,0"
+                                    Margin="0,0,8,0"
                                     Content="{Binding WasapiModeText}"
                                     Command="{Binding ToggleWasapiCommand}"
                                     FontSize="11" />
-                            <Button Width="108" Height="30"
-                                    Content="{Binding GaplessText}"
-                                    Command="{Binding ToggleGaplessCommand}"
-                                    FontSize="11" />
+                            <Border Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    CornerRadius="4"
+                                    Padding="8,4"
+                                    Height="30"
+                                    VerticalAlignment="Center"
+                                    ToolTip="{Binding BitPerfectInfoText}">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding BitDepthText}"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center">
+                                        <TextBlock.Foreground>
+                                            <SolidColorBrush Color="{Binding BitDepthColor}" />
+                                        </TextBlock.Foreground>
+                                    </TextBlock>
+                                    <TextBlock Text="  "
+                                               FontSize="13"
+                                               FontWeight="Medium"
+                                               VerticalAlignment="Center"
+                                               Foreground="#555555" />
+                                    <TextBlock Text="{Binding SampleRateText}"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center">
+                                        <TextBlock.Foreground>
+                                            <SolidColorBrush Color="{Binding SampleRateColor}" />
+                                        </TextBlock.Foreground>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <!-- Row 2: Transport Controls — asymmetric sizing -->

@@ -22,7 +22,6 @@ public class MainViewModel : INotifyPropertyChanged
     private int _bitrate;
     private bool _isPlaying;
     private bool _wasapiExclusive;
-    private bool _gaplessEnabled;
     private bool _isExpanded;
     private double _windowHeight = 220;
     private bool _isHiresMode;
@@ -36,8 +35,6 @@ public class MainViewModel : INotifyPropertyChanged
     private double _progress;
     private double _volumeValue;
     private bool _isSeeking;
-    private static readonly Random _rng = new();
-
     // Background loading state
     private bool _isLoadingPlaylist;
     private bool _isLoadingLibrary;
@@ -58,13 +55,9 @@ public class MainViewModel : INotifyPropertyChanged
         // Load persisted settings (lightweight — just reads JSON)
         var settings = _settingsService.Current;
         _wasapiExclusive = settings.WasapiExclusive;
-        _gaplessEnabled = settings.GaplessEnabled;
         _isExpanded = settings.IsExpanded;
         _isHiresMode = settings.IsHiresMode;
         _volumeValue = settings.Volume;
-
-        // Apply non-WASAPI settings immediately
-        _audioService.SetGaplessMode(_gaplessEnabled);
 
         // Subscribe to audio events
         _audioService.TrackChanged += OnTrackChanged;
@@ -73,6 +66,7 @@ public class MainViewModel : INotifyPropertyChanged
         _audioService.DurationChanged += OnDurationChanged;
         _audioService.BitrateChanged += OnBitrateChanged;
         _audioService.VolumeChanged += OnVolumeChanged;
+        _audioService.WasapiModeChanged += OnWasapiModeChanged;
 
         // Commands
         PlayPauseCommand = new RelayCommand(_ => PlayPause());
@@ -80,7 +74,6 @@ public class MainViewModel : INotifyPropertyChanged
         NextCommand = new RelayCommand(_ => _audioService.Next());
         PreviousCommand = new RelayCommand(_ => _audioService.Previous());
         ToggleWasapiCommand = new RelayCommand(_ => ToggleWasapi());
-        ToggleGaplessCommand = new RelayCommand(_ => ToggleGapless());
         ToggleExpandedCommand = new RelayCommand(_ => ToggleExpanded());
         ToggleLibraryModeCommand = new RelayCommand(_ => ToggleLibraryMode());
         AddSourceCommand = new RelayCommand(_ => AddSource());
@@ -143,12 +136,6 @@ public class MainViewModel : INotifyPropertyChanged
         set { _wasapiExclusive = value; OnPropertyChanged(); OnPropertyChanged(nameof(WasapiModeText)); }
     }
 
-    public bool GaplessEnabled
-    {
-        get => _gaplessEnabled;
-        set { _gaplessEnabled = value; OnPropertyChanged(); OnPropertyChanged(nameof(GaplessText)); OnPropertyChanged(nameof(GaplessTextColor)); }
-    }
-
     public bool IsExpanded
     {
         get => _isExpanded;
@@ -170,8 +157,69 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     public string WasapiModeText => _wasapiExclusive ? "WASAPI Exclusive" : "WASAPI Shared";
-    public string GaplessText => _gaplessEnabled ? "Gapless On" : "Gapless Off";
-    public string GaplessTextColor => _gaplessEnabled ? "#C9A84C" : "#AAAAAA";
+
+    /// <summary>
+    /// Bit depth text (e.g. "24 bit", "16 bit"). Empty when no track is playing.
+    /// </summary>
+    public string BitDepthText
+    {
+        get
+        {
+            int bd = _audioService.CurrentBitDepth;
+            return bd > 0 ? $"{bd} bit" : "";
+        }
+    }
+
+    /// <summary>
+    /// Sample rate text (e.g. "96 kHz", "44.1 kHz"). Empty when no track is playing.
+    /// Converts raw Hz to kHz with one decimal place for readability.
+    /// </summary>
+    public string SampleRateText
+    {
+        get
+        {
+            int sr = _audioService.CurrentSampleRate;
+            if (sr <= 0) return "";
+            double khz = sr / 1000.0;
+            // Show one decimal only if it's not a whole number (e.g. 44.1, but 96)
+            return khz == (int)khz ? $"{(int)khz} kHz" : $"{khz:F1} kHz";
+        }
+    }
+
+    /// <summary>
+    /// Full info string for tooltip (e.g. "24 bit / 96 kHz").
+    /// </summary>
+    public string BitPerfectInfoText
+    {
+        get
+        {
+            int sr = _audioService.CurrentSampleRate;
+            int bd = _audioService.CurrentBitDepth;
+            if (sr > 0 && bd > 0)
+            {
+                double khz = sr / 1000.0;
+                string srText = khz == (int)khz ? $"{(int)khz}" : $"{khz:F1}";
+                return $"{bd} bit / {srText} kHz";
+            }
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Whether a track is playing (activates the bit-perfect indicator colors).
+    /// </summary>
+    public bool IsBitPerfectActive => _isPlaying && _audioService.CurrentSampleRate > 0;
+
+    /// <summary>
+    /// Color for bit depth text — bright gold when active, gray when inactive.
+    /// </summary>
+    public string BitDepthColor => IsBitPerfectActive ? "#C9A84C" : "#555555";
+
+    /// <summary>
+    /// Color for sample rate text — medium gold when active, gray when inactive.
+    /// </summary>
+    public string SampleRateColor => IsBitPerfectActive ? "#A88A3E" : "#555555";
+
     public string PlayPauseIcon => _isPlaying ? "❚❚" : "►";
     public string StatusText
     {
@@ -193,8 +241,6 @@ public class MainViewModel : INotifyPropertyChanged
 
     public string LibraryModeText => _isHiresMode ? "Lossless" : "Compressed";
     public string AddSourceText => "Add Source";
-    public string NoCoverText => "No Image";
-
     public string MarqueeText
     {
         get => _marqueeText;
@@ -246,7 +292,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     public bool IsVolumeActive => _wasapiExclusive;
 
-    public string VolumeTextColor => _wasapiExclusive ? "#C9A84C" : "#AAAAAA";
+    public string VolumeTextColor => _wasapiExclusive ? "#C9A84C" : "#555555";
 
     // Expanded Panel ViewModel
     public ExpandedPanelViewModel ExpandedPanel { get; }
@@ -257,7 +303,6 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand NextCommand { get; }
     public ICommand PreviousCommand { get; }
     public ICommand ToggleWasapiCommand { get; }
-    public ICommand ToggleGaplessCommand { get; }
     public ICommand ToggleExpandedCommand { get; }
     public ICommand ToggleLibraryModeCommand { get; }
     public ICommand AddSourceCommand { get; }
@@ -290,23 +335,11 @@ public class MainViewModel : INotifyPropertyChanged
     private void ToggleWasapi()
     {
         WasapiExclusive = !WasapiExclusive;
-        if (_wasapiExclusive)
-        {
-            // Set safe starting volume (20%) when switching to Exclusive mode
-            VolumeValue = 0.2;
-        }
         _audioService.SetWasapiMode(WasapiExclusive);
         OnPropertyChanged(nameof(IsVolumeActive));
         OnPropertyChanged(nameof(VolumeTextColor));
         OnPropertyChanged(nameof(WasapiIndicatorColor));
         _settingsService.Update(s => s.WasapiExclusive = _wasapiExclusive);
-    }
-
-    private void ToggleGapless()
-    {
-        GaplessEnabled = !GaplessEnabled;
-        _audioService.SetGaplessMode(GaplessEnabled);
-        _settingsService.Update(s => s.GaplessEnabled = _gaplessEnabled);
     }
 
     private void ToggleExpanded()
@@ -363,6 +396,12 @@ public class MainViewModel : INotifyPropertyChanged
         StatusText = "Playing";
         OnPropertyChanged(nameof(PlayPauseIcon));
         OnPropertyChanged(nameof(CoverPath));
+        OnPropertyChanged(nameof(BitPerfectInfoText));
+        OnPropertyChanged(nameof(BitDepthText));
+        OnPropertyChanged(nameof(SampleRateText));
+        OnPropertyChanged(nameof(IsBitPerfectActive));
+        OnPropertyChanged(nameof(BitDepthColor));
+        OnPropertyChanged(nameof(SampleRateColor));
     }
 
     private void OnPlayStateChanged(bool playing)
@@ -373,6 +412,9 @@ public class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(PlayIndicatorColor));
         OnPropertyChanged(nameof(PauseIndicatorColor));
         OnPropertyChanged(nameof(StopIndicatorColor));
+        OnPropertyChanged(nameof(IsBitPerfectActive));
+        OnPropertyChanged(nameof(BitDepthColor));
+        OnPropertyChanged(nameof(SampleRateColor));
     }
 
     /// <summary>
@@ -417,6 +459,22 @@ public class MainViewModel : INotifyPropertyChanged
     {
         _volumeValue = volume;
         OnPropertyChanged(nameof(VolumeValue));
+    }
+
+    private void OnWasapiModeChanged(bool exclusive)
+    {
+        // Called when AudioService falls back from Exclusive to Shared mode
+        // (e.g., when the audio device doesn't support Exclusive mode).
+        System.Windows.Application.Current.Dispatcher.Invoke(() =>
+        {
+            _wasapiExclusive = exclusive;
+            OnPropertyChanged(nameof(WasapiExclusive));
+            OnPropertyChanged(nameof(WasapiModeText));
+            OnPropertyChanged(nameof(IsVolumeActive));
+            OnPropertyChanged(nameof(VolumeTextColor));
+            OnPropertyChanged(nameof(WasapiIndicatorColor));
+            _settingsService.Update(s => s.WasapiExclusive = exclusive);
+        });
     }
 
     private void UpdateMarqueeText()

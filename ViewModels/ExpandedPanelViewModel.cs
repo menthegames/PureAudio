@@ -61,12 +61,6 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         ApplyFilter();
     }
 
-    /// <summary>
-    /// Whether there is a saved playlist selected that can be renamed/deleted.
-    /// </summary>
-    private bool CanManagePlaylist() => _playlistService.CurrentPlaylistName != null;
-
-
     private void OnTrackChanged(AudioFile track)
     {
         // Find the index of the currently playing track in the playlist and select it
@@ -194,11 +188,6 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
     /// </summary>
     public string SearchPlaceholderText => "Search library...";
 
-    /// <summary>
-    /// Whether the search box should be visible (always visible).
-    /// </summary>
-    public bool IsSearchVisible => true;
-
     private void StartSearchDebounce()
     {
         _searchDebounceTimer?.Stop();
@@ -224,7 +213,6 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
     }
 
     // Button text properties
-    public string AddFolderText => "Add Folder";
     public string UpText => "Up";
     public string DownText => "Down";
     public string DeleteText => "X";

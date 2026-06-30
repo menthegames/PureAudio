@@ -3,7 +3,6 @@ namespace PureAudio.Models;
 public class AudioSettings
 {
     public bool WasapiExclusive { get; set; } = false;
-    public bool GaplessEnabled { get; set; } = true;
     public bool IsExpanded { get; set; } = false;
     public bool IsDarkTheme { get; set; } = true;
     public bool IsHiresMode { get; set; } = false;

@@ -37,14 +37,16 @@
     <EmbeddedResource Update="Properties\Strings.resx" />
   </ItemGroup>
 
-  <!-- Явно включаем иконку и сплэш-изображение в сборку -->
+  <!-- Явно включаем иконку в выходную директорию -->
   <ItemGroup>
     <Content Include="music_icon.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="PureAudio.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+  </ItemGroup>
+
+  <!-- Сплэш-изображение вшиваем в сборку как WPF Resource -->
+  <ItemGroup>
+    <Resource Include="PureAudio.png" />
   </ItemGroup>
 
 </Project>

@@ -38,10 +38,6 @@ public partial class App : Application
             // AudioService starts in Shared mode (safe, no blocking)
             var audioService = new AudioService(playlistService, fftService);
 
-            // Apply non-WASAPI settings immediately
-            var settings = settingsService.Current;
-            audioService.SetGaplessMode(settings.GaplessEnabled);
-
             // ── 3. Create ViewModels ──
             _splash.UpdateStatus("Building interface...");
             DoEvents();

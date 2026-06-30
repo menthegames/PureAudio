@@ -52,153 +52,20 @@ internal class FftCaptureProvider : ISampleProvider
     }
 }
 
-/// <summary>
-/// A sample provider that chains multiple AudioFileReaders together for gapless playback.
-/// When the current reader runs out of data, it seamlessly opens the next track.
-/// This runs on the NAudio playback thread, so it must be thread-safe and not touch UI.
-/// </summary>
-internal class GaplessSampleProvider : ISampleProvider
-{
-    private AudioFileReader? _currentReader;
-    private readonly PlaylistService _playlistService;
-    private readonly Func<bool> _isGaplessEnabled;
-    private readonly Func<float> _getVolume;
-    private readonly Func<bool> _getWasapiExclusive;
-    private bool _disposed;
-    private bool _hasAdvanced; // Prevents multiple advances in a single Read() call
-
-    // Event raised on the NAudio playback thread when a track ends and next begins.
-    // AudioService must handle this to update _audioFileReader and notify UI on correct thread.
-    internal event Action<AudioFile>? TrackAdvanced;
-
-    public GaplessSampleProvider(
-        AudioFileReader initialReader,
-        PlaylistService playlistService,
-        Func<bool> isGaplessEnabled,
-        Func<float> getVolume,
-        Func<bool> getWasapiExclusive)
-    {
-        _currentReader = initialReader;
-        _playlistService = playlistService;
-        _isGaplessEnabled = isGaplessEnabled;
-        _getVolume = getVolume;
-        _getWasapiExclusive = getWasapiExclusive;
-    }
-
-    public WaveFormat WaveFormat => _currentReader?.WaveFormat ?? new WaveFormat(44100, 16, 2);
-
-    public AudioFileReader? CurrentReader => _currentReader;
-
-    public int Read(float[] buffer, int offset, int count)
-    {
-        if (_disposed || _currentReader == null)
-            return 0;
-
-        int totalRead = 0;
-        _hasAdvanced = false;
-
-        while (totalRead < count)
-        {
-            int remaining = count - totalRead;
-            int samplesRead = _currentReader.Read(buffer, offset + totalRead, remaining);
-
-            if (samplesRead > 0)
-            {
-                totalRead += samplesRead;
-            }
-
-            // Current reader has finished — try to advance to next track
-            if (!_hasAdvanced && (_currentReader.TotalTime - _currentReader.CurrentTime <= TimeSpan.Zero || samplesRead == 0))
-            {
-                // If gapless is disabled, stop here and let the caller handle it
-                if (!_isGaplessEnabled())
-                    break;
-
-                // Try to get the next track
-                var nextItem = _playlistService.GetNext();
-                if (nextItem == null)
-                    break; // No more tracks
-
-                // Open the next file
-                var nextReader = OpenNextReader(nextItem.AudioFile);
-                if (nextReader == null)
-                    break;
-
-                // Dispose old reader and switch to new one
-                var oldReader = _currentReader;
-                _currentReader = nextReader;
-                oldReader.Dispose();
-
-                _hasAdvanced = true;
-
-                // Notify AudioService about the track change (it will update _audioFileReader)
-                TrackAdvanced?.Invoke(nextItem.AudioFile);
-
-                // Continue reading from the new track into the same buffer
-                // (this is what makes it truly gapless — no gap in the output stream)
-            }
-            else
-            {
-                // Reader still has data, we've read what we can
-                break;
-            }
-        }
-
-        return totalRead;
-    }
-
-    private AudioFileReader? OpenNextReader(AudioFile audioFile)
-    {
-        try
-        {
-            var reader = new AudioFileReader(audioFile.FilePath);
-            float vol = _getVolume();
-            bool excl = _getWasapiExclusive();
-            reader.Volume = excl ? vol * vol * vol : 1.0f;
-            return reader;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Gapless: failed to open next track: {ex.Message}");
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Replace the current reader (e.g., when user clicks Next/Previous or seeks).
-    /// </summary>
-    public void ReplaceReader(AudioFileReader newReader)
-    {
-        var oldReader = _currentReader;
-        _currentReader = newReader;
-        oldReader?.Dispose();
-    }
-
-    public void Dispose()
-    {
-        _disposed = true;
-        _currentReader?.Dispose();
-        _currentReader = null;
-    }
-}
-
 public class AudioService : IDisposable
 {
     private IWavePlayer? _outputDevice;
     private AudioFileReader? _audioFileReader;
     private FftCaptureProvider? _fftCaptureProvider;
-    private GaplessSampleProvider? _gaplessProvider;
     private readonly PlaylistService _playlistService;
     private readonly FftService _fftService;
     private bool _wasapiExclusive;
-    private bool _gaplessEnabled;
     private bool _isPlaying;
     private bool _isPaused;
     private float _volume = 0.5f; // Default 50% volume for exclusive mode
-    private CancellationTokenSource? _gaplessCts;
+    private CancellationTokenSource? _positionCts;
     private TimeSpan _pausePosition; // Position saved when pausing in Exclusive mode
     private int _playbackId; // Incremented on each PlayInternal to ignore stale PlaybackStopped events
-
 
     public event Action<AudioFile>? TrackChanged;
     public event Action<bool>? PlayStateChanged;
@@ -206,20 +73,42 @@ public class AudioService : IDisposable
     public event Action<TimeSpan>? DurationChanged;
     public event Action<int>? BitrateChanged;
     public event Action<float>? VolumeChanged;
+    public event Action<bool>? WasapiModeChanged;
     public bool IsPlaying => _isPlaying;
     public bool IsPaused => _isPaused;
     public bool WasapiExclusive => _wasapiExclusive;
-    public bool GaplessEnabled => _gaplessEnabled;
     public float Volume => _volume;
     public TimeSpan CurrentPosition => _audioFileReader?.CurrentTime ?? TimeSpan.Zero;
     public TimeSpan Duration => _audioFileReader?.TotalTime ?? TimeSpan.Zero;
     public int Bitrate => _playlistService.CurrentItem?.AudioFile.Bitrate ?? 0;
 
+    /// <summary>
+    /// Current sample rate of the playing track (0 if not playing).
+    /// Used by UI for bit-perfect indicator.
+    /// </summary>
+    public int CurrentSampleRate => _audioFileReader?.WaveFormat.SampleRate ?? 0;
+
+    /// <summary>
+    /// Current bit depth of the playing track (0 if not playing).
+    /// Used by UI for bit-perfect indicator.
+    /// </summary>
+    public int CurrentBitDepth => _audioFileReader?.WaveFormat.BitsPerSample ?? 0;
+
     public void SetVolume(float volume)
     {
         _volume = Math.Clamp(volume, 0f, 1f);
         if (_audioFileReader != null)
-            _audioFileReader.Volume = _volume * _volume * _volume; // Cubic curve for smoother control
+        {
+            // In Exclusive mode, WASAPI bypasses the system mixer, so the system
+            // volume slider has no effect. We apply software volume control here
+            // so the user can still adjust volume via the app's slider.
+            // In Shared mode, the system volume slider works, so we keep
+            // AudioFileReader.Volume at 1.0f (no software modification).
+            if (_wasapiExclusive)
+            {
+                _audioFileReader.Volume = _volume * _volume * _volume; // Cubic curve for smoother control
+            }
+        }
         VolumeChanged?.Invoke(_volume);
     }
 
@@ -235,14 +124,19 @@ public class AudioService : IDisposable
         if (_isPlaying || _isPaused)
         {
             var position = CurrentPosition;
+            System.Diagnostics.Debug.WriteLine($"SetWasapiMode: switching to {(exclusive ? "Exclusive" : "Shared")}, position={position.TotalSeconds:F3}s");
             StopInternal();
+
+            // When switching to Exclusive mode, the old WasapiOut may still hold
+            // the audio device exclusively. A small delay ensures the device is
+            // released before creating a new WasapiOut in Exclusive mode.
+            if (exclusive)
+            {
+                System.Threading.Thread.Sleep(150);
+            }
+
             PlayInternal(position);
         }
-    }
-
-    public void SetGaplessMode(bool enabled)
-    {
-        _gaplessEnabled = enabled;
     }
 
     public void Play()
@@ -294,48 +188,23 @@ public class AudioService : IDisposable
                 System.Diagnostics.Debug.WriteLine($"PlayInternal: position {position.TotalSeconds:F3}s >= total {_audioFileReader.TotalTime.TotalSeconds:F3}s, starting from beginning");
             }
 
-            // In WASAPI Exclusive mode, the system mixer is bypassed so we need
-            // software volume control via AudioFileReader.Volume.
-            // In Shared mode, the system volume slider works, so we set Volume=1.0.
-            // Apply cubic curve for smooth perception (same as SetVolume).
-            _audioFileReader.Volume = _wasapiExclusive ? _volume * _volume * _volume : 1.0f;
-
-            ISampleProvider sourceProvider;
-
-            if (_gaplessEnabled)
+            // In WASAPI Exclusive mode, the system mixer is bypassed, so the
+            // system volume slider has no effect. We apply software volume
+            // control via AudioFileReader.Volume so the user can still adjust
+            // volume through the app's slider.
+            // In Shared mode, the system volume slider works, so we keep
+            // AudioFileReader.Volume at 1.0f (no software modification).
+            if (_wasapiExclusive)
             {
-                // Use GaplessSampleProvider which auto-advances to next track
-                _gaplessProvider = new GaplessSampleProvider(
-                    _audioFileReader,
-                    _playlistService,
-                    () => _gaplessEnabled,
-                    () => _volume,
-                    () => _wasapiExclusive);
-
-                // When the gapless provider advances to the next track on the audio thread,
-                // update _audioFileReader and marshal UI notifications to the main thread.
-                _gaplessProvider.TrackAdvanced += track => {
-                    // Update _audioFileReader to point to the new reader
-                    _audioFileReader = _gaplessProvider.CurrentReader;
-                    // Fire events on the main thread via System.Windows.Application.Current.Dispatcher
-                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                    {
-                        TrackChanged?.Invoke(track);
-                        DurationChanged?.Invoke(_audioFileReader?.TotalTime ?? TimeSpan.Zero);
-                        BitrateChanged?.Invoke(track.Bitrate);
-                    });
-                };
-
-                sourceProvider = _gaplessProvider;
+                _audioFileReader.Volume = _volume * _volume * _volume; // Cubic curve for smoother control
             }
             else
             {
-                _gaplessProvider = null;
-                sourceProvider = _audioFileReader;
+                _audioFileReader.Volume = 1.0f;
             }
 
             // Wrap with FFT capture provider
-            _fftCaptureProvider = new FftCaptureProvider(sourceProvider, _fftService);
+            _fftCaptureProvider = new FftCaptureProvider(_audioFileReader, _fftService);
 
             _outputDevice = CreateWasapiOutput();
             _outputDevice.PlaybackStopped += OnPlaybackStopped;
@@ -353,7 +222,8 @@ public class AudioService : IDisposable
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Playback error: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Playback error (playbackId={currentPlaybackId}): {ex.GetType().Name}: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Stack: {ex.StackTrace}");
         }
     }
 
@@ -361,8 +231,27 @@ public class AudioService : IDisposable
     {
         if (_wasapiExclusive)
         {
-            return new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Exclusive, 100);
+            System.Diagnostics.Debug.WriteLine("CreateWasapiOutput: creating Exclusive WasapiOut");
+            try
+            {
+                var wasapi = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Exclusive, 100);
+                System.Diagnostics.Debug.WriteLine("CreateWasapiOutput: Exclusive WasapiOut created successfully");
+                return wasapi;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CreateWasapiOutput: FAILED to create Exclusive WasapiOut: {ex.GetType().Name}: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack: {ex.StackTrace}");
+                // Fall back to Shared mode
+                System.Diagnostics.Debug.WriteLine("CreateWasapiOutput: falling back to Shared WasapiOut");
+                _wasapiExclusive = false;
+                WasapiModeChanged?.Invoke(false);
+                var wasapi = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
+                System.Diagnostics.Debug.WriteLine("CreateWasapiOutput: Shared WasapiOut created as fallback");
+                return wasapi;
+            }
         }
+        System.Diagnostics.Debug.WriteLine("CreateWasapiOutput: creating Shared WasapiOut");
         return new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 100);
     }
 
@@ -420,7 +309,6 @@ public class AudioService : IDisposable
         }
     }
 
-
     public void Stop()
     {
         StopInternal();
@@ -430,7 +318,7 @@ public class AudioService : IDisposable
 
     private void StopInternal()
     {
-        _gaplessCts?.Cancel();
+        _positionCts?.Cancel();
         _isPlaying = false;
         _isPaused = false;
 
@@ -442,9 +330,6 @@ public class AudioService : IDisposable
             _outputDevice = null;
         }
 
-        _gaplessProvider?.Dispose();
-        _gaplessProvider = null;
-
         if (_audioFileReader != null)
         {
             _audioFileReader.Dispose();
@@ -454,44 +339,14 @@ public class AudioService : IDisposable
 
     public void Next()
     {
-        if (_gaplessEnabled && _gaplessProvider != null && _isPlaying)
+        var next = _playlistService.GetNext();
+        if (next != null)
         {
-            // In gapless mode, force-switch the provider to the next track immediately
-            var nextItem = _playlistService.GetNext();
-            if (nextItem == null)
-            {
-                Stop();
-                return;
-            }
-
-            try
-            {
-                var newReader = new AudioFileReader(nextItem.AudioFile.FilePath);
-                newReader.Volume = _wasapiExclusive ? _volume * _volume * _volume : 1.0f;
-                _gaplessProvider.ReplaceReader(newReader);
-                _audioFileReader = newReader;
-
-                TrackChanged?.Invoke(nextItem.AudioFile);
-                DurationChanged?.Invoke(_audioFileReader.TotalTime);
-                BitrateChanged?.Invoke(nextItem.AudioFile.Bitrate);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Next error (gapless): {ex.Message}");
-                Stop();
-            }
+            PlayInternal(TimeSpan.Zero);
         }
         else
         {
-            var next = _playlistService.GetNext();
-            if (next != null)
-            {
-                PlayInternal(TimeSpan.Zero);
-            }
-            else
-            {
-                Stop();
-            }
+            Stop();
         }
     }
 
@@ -521,51 +376,43 @@ public class AudioService : IDisposable
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e)
     {
         // Ignore stale PlaybackStopped events from previous PlayInternal calls.
-        // When Pause() calls StopInternal() and then Resume() calls PlayInternal(),
-        // a PlaybackStopped event from the old device may arrive after the new one
-        // has already started playing. Without this check, it would incorrectly
-        // trigger Next() or Stop() on the new playback.
         if (!_isPlaying || _isPaused)
             return;
 
         // If the sender is not the current output device, ignore this event.
-        // This prevents stale PlaybackStopped events from a previous device
-        // (e.g., after Pause/Resume recreates the device) from triggering
-        // Next() or Stop() on the new playback.
         if (sender != _outputDevice)
             return;
 
-        if (_gaplessEnabled && _gaplessProvider != null)
-        {
-            // In gapless mode, the GaplessSampleProvider handles auto-advance seamlessly.
-            // PlaybackStopped fires when the output device runs out of data.
-            // This can happen in two scenarios:
-            // 1. The gapless provider has already switched to the next track (normal gapless transition)
-            // 2. The playlist has ended (no more tracks)
-            //
-            // Check if the gapless provider still has a valid reader with data remaining.
-            var currentReader = _gaplessProvider.CurrentReader;
-            if (currentReader != null && currentReader.CurrentTime < currentReader.TotalTime)
-            {
-                // The gapless provider is still playing the next track — ignore this event.
-                return;
-            }
+        System.Diagnostics.Debug.WriteLine(
+            $"OnPlaybackStopped: isPlaying={_isPlaying}, isPaused={_isPaused}");
 
-            // No more data — stop playback
-            Stop();
-        }
-        else
+        // IMPORTANT: Do NOT call Next() synchronously here.
+        // We are inside the PlaybackStopped event handler of the old WasapiOut.
+        // Calling StopInternal() -> Dispose() on the current _outputDevice from
+        // within its own event handler can cause deadlocks or leave the new
+        // device in a broken state (track appears to pause instead of playing).
+        //
+        // Instead, schedule the next track on a background thread so that the
+        // old device's event handler can complete cleanly before we create a
+        // new output device.
+        System.Threading.ThreadPool.QueueUserWorkItem(_ =>
         {
-            // Auto-advance to next track (non-gapless: there will be a small gap)
-            Next();
-        }
+            try
+            {
+                Next();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Async Next() error: {ex.Message}");
+            }
+        });
     }
 
     private async void StartPositionTracking()
     {
-        _gaplessCts?.Cancel();
-        _gaplessCts = new CancellationTokenSource();
-        var token = _gaplessCts.Token;
+        _positionCts?.Cancel();
+        _positionCts = new CancellationTokenSource();
+        var token = _positionCts.Token;
 
         try
         {
