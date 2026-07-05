@@ -1,30 +1,67 @@
-# Task Progress: Bit-Perfect Volume Management Refactoring
+# PureAudio — Task Progress
 
-## Цель
-Переработать управление громкостью: убрать переключатель WASAPI Exclusive/Shared из UI, заменить на кнопку "Bit Perfect", реализовать честный bit-perfect режим без DSP-регулировки громкости.
+## Bit Perfect Mode: WASAPI Exclusive + Device Capabilities
 
-## План
+### ✅ Выполнено
 
-- [x] Проанализировать текущую архитектуру (AudioService, MainViewModel, MainWindow.xaml)
-- [x] Согласовать новую архитектуру с пользователем
-- [ ] **Шаг 1:** AudioService.cs — переработать логику:
-  - Убрать кубическую кривую громкости
-  - Добавить метод `SetBitPerfectMode(bool enable)` 
-  - В bit-perfect режиме: Volume = 1.0 (без DSP)
-  - В обычном режиме: Volume = 1.0 (Shared, системный микшер)
-  - При переключении в bit-perfect: устанавливать громкость 100%, сохранять предыдущее значение для возврата
-- [ ] **Шаг 2:** AudioSettings.cs — добавить поля:
-  - `BitPerfectEnabled` (bool)
-  - `WarningAccepted` (bool) — для галочки "больше не показывать"
-  - `PreviousVolume` (double) — для восстановления громкости при выходе из bit-perfect
-- [ ] **Шаг 3:** MainViewModel.cs — переработать:
-  - Убрать `WasapiExclusive`, `ToggleWasapiCommand`, `WasapiModeText`
-  - Добавить `IsBitPerfectMode`, `BitPerfectCommand`
-  - Логика блокировки ползунка в bit-perfect режиме
-  - Индикация: золотой/серый для кнопки и битности/частоты
-  - Диалог предупреждения при первом включении
-- [ ] **Шаг 4:** MainWindow.xaml — обновить UI:
-  - Заменить кнопку WASAPI Exclusive/Shared на кнопку "Bit Perfect"
-  - Ползунок громкости: блокируется в bit-perfect режиме
-  - Индикаторы битности/частоты: золотые в bit-perfect, серые в обычном режиме
-- [ ] **Шаг 5:** Проверить и оттестировать изменения
+1. **Создан `WasapiExclusivePlayer`** — кастомный `IWavePlayer` для WASAPI Exclusive
+   - Использует `AudioClient` в режиме `AudioClientShareMode.Exclusive`
+   - Подаёт исходный PCM напрямую в драйвер/ЦАП без преобразований
+   - Поддерживает все форматы: 16/24/32 bit, 44.1/48/96/192 kHz
+   - Обрабатывает ошибки инициализации (неподдерживаемые форматы)
+
+2. **Создан `DeviceCapabilities`** — определение возможностей аудиоустройства
+   - Определяет максимальные Sample Rate, Bit Depth, Channels
+   - Метод `GetBitPerfectStatus()` — проверяет, является ли текущий формат Perfect или Limited
+   - Логирование диагностики при инициализации
+
+3. **Создан `BitPerfectWaveProvider`** — IWaveProvider для Bit Perfect режима
+   - Для WAV/FLAC — читает исходные PCM данные напрямую (без конвертации)
+   - Для MP3/AAC — использует AudioFileReader (эти форматы lossy)
+   - Встроенный `PcmToFloatConverter` для FFT (преобразует PCM → float для спектроанализатора)
+   - Поддержка позиционирования (CurrentTime, TotalTime, Seek)
+
+4. **Обновлён `AudioService`** — поддержка двух режимов воспроизведения
+   - Bit Perfect (Exclusive) — через `WasapiExclusivePlayer` + `BitPerfectWaveProvider`
+   - Normal (Shared) — через стандартный `WasapiOut` + `AudioFileReader`
+   - Плавное переключение между режимами с сохранением позиции
+   - Fallback на Shared при ошибке Exclusive
+   - Событие `BitPerfectStatusChanged` для UI
+
+5. **Обновлён `MainViewModel`** — UI для Bit Perfect режима
+   - Кнопка "Bit Perfect" с золотым/серым индикатором
+   - Отображение Bit Depth / Sample Rate текущего трека
+   - Индикатор статуса: Perfect (зелёный) / Limited (жёлтый) / Off (серый)
+   - Отключение ползунка громкости в Bit Perfect режиме
+   - Индикатор возможностей устройства (макс. битность/частота)
+   - Предупреждение при первом включении Bit Perfect
+
+6. **Обновлён `MainWindow.xaml`** — визуальные элементы
+   - Индикатор Bit Perfect статуса (Perfect/Limited/Off)
+   - Индикатор возможностей устройства (например "32 bit / 192 kHz")
+   - Все индикаторы в едином стиле с золотым акцентом
+
+### 🔄 В процессе / Планируется
+
+- [ ] Тестирование на реальном ЦАПе
+- [ ] Оптимизация FFT для разных форматов
+- [ ] Поддержка DSD (возможно, в будущем)
+- [ ] Отображение формата в плейлисте (битность/частота для каждого трека)
+
+### 📝 Архитектурные решения
+
+- **Почему IWaveProvider, а не ISampleProvider для Bit Perfect?**
+  - WASAPI Exclusive требует raw PCM данные в исходном формате
+  - ISampleProvider конвертирует всё в IEEE float (32 бита), что нарушает Bit Perfect
+  - IWaveProvider передаёт байты как есть, без изменений
+
+- **Почему отдельный `WasapiExclusivePlayer`, а не `WasapiOut` с `AudioClientShareMode.Exclusive`?**
+  - NAudio `WasapiOut` в Exclusive режиме имеет ограничения
+  - Кастомный `WasapiExclusivePlayer` даёт полный контроль над форматом вывода
+  - Позволяет точно сопоставлять формат источника с поддерживаемым форматом устройства
+
+- **Как работает определение Bit Perfect статуса?**
+  - `DeviceCapabilities` при инициализации проверяет все поддерживаемые форматы
+  - `GetBitPerfectStatus(sr, bd, ch)` сравнивает формат трека с возможностями устройства
+  - `Perfect` — точное совпадение с поддерживаемым форматом
+  - `Limited` — формат не поддерживается напрямую (будет использован ближайший поддерживаемый)

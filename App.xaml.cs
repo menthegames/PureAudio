@@ -20,8 +20,13 @@ public partial class App : Application
 
         try
         {
+            // ── 0. Run WASAPI device test (DEBUG only) ──
+            // TestWasapi.Run();
+            // TestInit.Run();
+
             // ── 1. Show splash screen immediately ──
             _splash = new SplashWindow();
+
             _splash.Show();
             _splash.UpdateStatus("Initializing...");
             DoEvents();
@@ -29,6 +34,9 @@ public partial class App : Application
             // ── 2. Create services (lightweight, no heavy I/O) ──
             _splash.UpdateStatus("Loading services...");
             DoEvents();
+
+            // Clean up stale cover cache on startup
+            MetadataService.CleanCoverCache();
 
             var playlistService = new PlaylistService();
             var libraryService = new LibraryService();

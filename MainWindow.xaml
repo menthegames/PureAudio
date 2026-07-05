@@ -174,6 +174,45 @@
                                     </TextBlock.Foreground>
                                 </TextBlock>
                             </Border>
+                            <!-- Bit Perfect Status Indicator (Perfect/Limited/Off) -->
+                            <Border Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    CornerRadius="4"
+                                    Padding="6,3"
+                                    Margin="0,0,6,0"
+                                    ToolTip="{Binding BitPerfectStatusText}">
+                                <TextBlock Text="{Binding BitPerfectStatusText}"
+                                           FontSize="10"
+                                           FontWeight="Medium">
+                                    <TextBlock.Foreground>
+                                        <SolidColorBrush Color="{Binding BitPerfectStatusColor}" />
+                                    </TextBlock.Foreground>
+                                </TextBlock>
+                            </Border>
+                            <!-- Device capabilities indicator -->
+                            <Border Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    CornerRadius="4"
+                                    Padding="6,3"
+                                    Margin="0,0,6,0"
+                                    ToolTip="{Binding DeviceNameText}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding DeviceMaxBitDepthText}"
+                                               FontSize="10"
+                                               FontWeight="Medium"
+                                               Foreground="#777777" />
+                                    <TextBlock Text=" / "
+                                               FontSize="10"
+                                               FontWeight="Medium"
+                                               Foreground="#555555" />
+                                    <TextBlock Text="{Binding DeviceMaxSampleRateText}"
+                                               FontSize="10"
+                                               FontWeight="Medium"
+                                               Foreground="#777777" />
+                                </StackPanel>
+                            </Border>
                         </WrapPanel>
 
                         <!-- Play/Pause/Stop Indicators -->

@@ -106,6 +106,13 @@ public static class MetadataService
         return 0;
     }
 
+    /// <summary>
+    /// Returns the expected bits-per-sample for known formats.
+    /// FLAC is typically 16 or 24 bit — we default to 24 for Hi-Res display purposes.
+    /// WAV is typically 16 bit (can be 24/32, but we default to 16).
+    /// For lossy formats (MP3, AAC, etc.), the source is always 16 bit.
+    /// NOTE: This is a best-guess — actual bit depth is determined at decode time.
+    /// </summary>
     private static int GetBitsPerSample(string filePath)
     {
         var ext = System.IO.Path.GetExtension(filePath).ToLowerInvariant();
@@ -113,6 +120,7 @@ public static class MetadataService
         {
             ".flac" => 24,
             ".wav" => 16,
+            ".aiff" or ".aif" => 16,
             ".mp3" => 16,
             _ => 16
         };
@@ -130,6 +138,12 @@ public static class MetadataService
         return null;
     }
 
+    /// <summary>
+    /// Maximum age for cached cover images (7 days).
+    /// Covers older than this will be re-extracted on next access.
+    /// </summary>
+    private static readonly TimeSpan CoverCacheMaxAge = TimeSpan.FromDays(7);
+
     private static string? ExtractEmbeddedCover(TagLib.File file, string audioPath)
     {
         try
@@ -140,15 +154,59 @@ public static class MetadataService
                 var coverDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "PureAudio", "Covers");
                 System.IO.Directory.CreateDirectory(coverDir);
                 var coverPath = System.IO.Path.Combine(coverDir, $"{System.IO.Path.GetFileNameWithoutExtension(audioPath)}.jpg");
-                if (!System.IO.File.Exists(coverPath))
+
+                // Check if cached cover exists and is fresh enough
+                if (System.IO.File.Exists(coverPath))
                 {
-                    using var stream = new FileStream(coverPath, FileMode.Create);
-                    stream.Write(pictures[0].Data.Data, 0, pictures[0].Data.Data.Length);
+                    var lastWrite = System.IO.File.GetLastWriteTime(coverPath);
+                    if (DateTime.Now - lastWrite < CoverCacheMaxAge)
+                    {
+                        return coverPath; // Cache is fresh, use it
+                    }
+                    // Cache is stale — will re-extract below
                 }
+
+                // Extract cover from file
+                using var stream = new FileStream(coverPath, FileMode.Create);
+                stream.Write(pictures[0].Data.Data, 0, pictures[0].Data.Data.Length);
                 return coverPath;
             }
         }
         catch { }
         return null;
+    }
+
+    /// <summary>
+    /// Clean up stale cover cache files older than the max age.
+    /// Call this periodically (e.g., on app startup) to prevent unbounded cache growth.
+    /// </summary>
+    public static void CleanCoverCache()
+    {
+        try
+        {
+            var coverDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "PureAudio", "Covers");
+            if (!System.IO.Directory.Exists(coverDir))
+                return;
+
+            foreach (var file in System.IO.Directory.GetFiles(coverDir, "*.jpg"))
+            {
+                try
+                {
+                    var lastWrite = System.IO.File.GetLastWriteTime(file);
+                    if (DateTime.Now - lastWrite > CoverCacheMaxAge)
+                    {
+                        System.IO.File.Delete(file);
+                    }
+                }
+                catch
+                {
+                    // Skip files we can't access
+                }
+            }
+        }
+        catch
+        {
+            // Silently fail — cache cleanup is non-critical
+        }
     }
 }

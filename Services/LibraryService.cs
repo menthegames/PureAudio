@@ -10,9 +10,13 @@ public class LibraryService
     private const string SourcesFileName = "sources.json";
 
     // Supported audio extensions
+    // NOTE: Only formats that can actually be played are included.
+    // FLAC and WAV are fully supported with bit-perfect playback.
+    // AIFF/AIF are supported via NAudio's AudioFileReader (Shared mode only).
+    // DSD (DSF/DFF), APE, and WV are NOT supported — they require special decoders.
     private static readonly HashSet<string> LosslessExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".flac", ".wav", ".aiff", ".aif", ".dsf", ".dff", ".ape", ".wv"
+        ".flac", ".wav", ".aiff", ".aif"
     };
 
     private static readonly HashSet<string> CompressedExtensions = new(StringComparer.OrdinalIgnoreCase)

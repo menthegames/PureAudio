@@ -1,0 +1,52 @@
+# PureAudio: Project Context & Rules for Cline
+
+## 🎯 Project Philosophy
+PureAudio is a high-end digital audio player for Windows. 
+Core concept: "Audiophile simplicity". We provide Bit Perfect playback without the complex menus of Foobar2000. 
+The user just loads a file and gets the best possible sound. The app automatically handles device capabilities and format matching.
+
+## 🛠 Tech Stack & Architecture
+- **Language/Framework:** C#, WPF (.NET 8 or higher).
+- **Audio Library:** NAudio.
+- **UI Pattern:** MVVM (strict separation of UI and logic).
+- **Audio Engine:** Custom implementation based on NAudio's low-level WASAPI APIs.
+
+## 🎧 The "Bit Perfect" Core Logic (CRITICAL)
+This is the heart of the app. Cline MUST strictly follow these rules when modifying audio code:
+
+1. **Two Modes:** 
+   - `Shared` (WASAPI Shared): Uses standard Windows mixer. Resampling is allowed.
+   - `Exclusive` (WASAPI Exclusive): The primary mode. Bypasses Windows mixer.
+2. **No Auto-Conversion in Exclusive:** NEVER use `ISampleProvider` or high-level NAudio converters in the Exclusive playback chain. They convert audio to 32-bit float, destroying Bit Perfect. ALWAYS use raw `IWaveProvider` and pass raw PCM bytes.
+3. **Device Capability Check:** On startup and device change, `DeviceCapabilities` queries the DAC for max Sample Rate, Bit Depth, and Channels.
+4. **Status Indicators:**
+   - **Gold (Perfect):** Track format exactly matches device capabilities.
+   - **Dimmed/Yellow (Limited):** Track format exceeds device capabilities. App notifies user and falls back to the highest supported format.
+   - **Gray (Off):** Shared mode or device error.
+5. **Fallback:** If Exclusive mode fails to initialize (e.g., device is busy), seamlessly fall back to Shared mode without crashing.
+
+## 🚫 STRICT PROHIBITIONS (Do NOT do this)
+- DO NOT suggest replacing NAudio with another library unless there is a critical, unfixable bug. The current low-level NAudio implementation is correct.
+- DO NOT use `AudioFileReader` directly in the Exclusive mode playback chain.
+- DO NOT add complex DSP (EQ, crossfade) to the Bit Perfect chain unless explicitly requested, as it breaks the "pure signal" philosophy.
+- DO NOT rewrite `WasapiExclusivePlayer` or `BitPerfectWaveProvider` using high-level abstractions.
+
+## 📊 Current State (Based on task_progress.md)
+✅ **Completed:**
+- `WasapiExclusivePlayer` (Custom IWavePlayer for WASAPI Exclusive).
+- `DeviceCapabilities` (Queries DAC limits, checks Bit Perfect status).
+- `BitPerfectWaveProvider` (Reads raw PCM for WAV/FLAC, handles MP3/AAC via AudioFileReader, includes PcmToFloatConverter for FFT).
+- `AudioService` (Handles switching between Shared/Exclusive, fallback logic, `BitPerfectStatusChanged` event).
+- `MainViewModel` & `MainWindow.xaml` (UI for Bit Perfect status, Gold/Dimmed indicators, device capabilities display).
+
+🔄 **Next Steps / To Do:**
+- [ ] Real DAC testing (verify Exclusive mode switching and format fallback).
+- [ ] Optimize FFT for different raw PCM formats (for the spectrum analyzer).
+- [ ] Display format (bitrate/sample rate) directly in the playlist UI.
+- [ ] Handle edge cases (e.g., USB DAC disconnects during playback).
+
+## 💡 Cline Instructions for Every Session
+1. Before writing code, read `.clinerules` and `README.md` (if exists) to recall context.
+2. When modifying audio playback, always verify if the change affects the Bit Perfect signal path.
+3. Keep UI code (XAML) strictly separated from Audio logic (C#). Use MVVM.
+4. Explain complex audio concepts simply to the user, as they are an expert in their domain but not a professional programmer.

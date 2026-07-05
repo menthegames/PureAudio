@@ -25,6 +25,7 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _isExpanded;
     private double _windowHeight = 220;
     private bool _isHiresMode;
+    private BitPerfectStatus _bitPerfectStatus = BitPerfectStatus.Off;
     private float[] _fftData = new float[48];
     private string _marqueeText = "";
     private string _marqueeDisplayText = "";
@@ -67,6 +68,7 @@ public class MainViewModel : INotifyPropertyChanged
         _audioService.BitrateChanged += OnBitrateChanged;
         _audioService.VolumeChanged += OnVolumeChanged;
         _audioService.BitPerfectModeChanged += OnBitPerfectModeChanged;
+        _audioService.BitPerfectStatusChanged += OnBitPerfectStatusChanged;
 
         // Commands
         PlayPauseCommand = new RelayCommand(_ => PlayPause());
@@ -369,7 +371,7 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private async void ToggleBitPerfect()
+    private void ToggleBitPerfect()
     {
         if (_bitPerfectMode)
         {
@@ -482,6 +484,9 @@ public class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(BitPerfectIndicatorColor));
         OnPropertyChanged(nameof(BitPerfectButtonColor));
         OnPropertyChanged(nameof(BitPerfectBorderColor));
+        OnPropertyChanged(nameof(DeviceMaxSampleRateText));
+        OnPropertyChanged(nameof(DeviceMaxBitDepthText));
+        OnPropertyChanged(nameof(DeviceNameText));
     }
 
     private void OnPlayStateChanged(bool playing)
@@ -553,6 +558,101 @@ public class MainViewModel : INotifyPropertyChanged
             IsBitPerfectMode = enabled;
             _settingsService.Update(s => s.BitPerfectEnabled = enabled);
         });
+    }
+
+    /// <summary>
+    /// Called when the Bit Perfect status changes (Off/Perfect/Limited).
+    /// Updates the UI indicator colors and text accordingly.
+    /// </summary>
+    private void OnBitPerfectStatusChanged(BitPerfectStatus status)
+    {
+        _bitPerfectStatus = status;
+        System.Windows.Application.Current.Dispatcher.Invoke(() =>
+        {
+            OnPropertyChanged(nameof(BitPerfectStatusText));
+            OnPropertyChanged(nameof(BitPerfectStatusColor));
+            OnPropertyChanged(nameof(BitPerfectIndicatorColor));
+            OnPropertyChanged(nameof(IsBitPerfectActive));
+            OnPropertyChanged(nameof(BitDepthColor));
+            OnPropertyChanged(nameof(SampleRateColor));
+        });
+    }
+
+    /// <summary>
+    /// Text description of the current Bit Perfect status.
+    /// </summary>
+    /// <summary>
+    /// Maximum sample rate supported by the audio device (e.g. "192 kHz").
+    /// </summary>
+    public string DeviceMaxSampleRateText
+    {
+        get
+        {
+            int maxSr = _audioService.DeviceCapabilities.MaxSampleRate;
+            if (maxSr <= 0) return "";
+            double khz = maxSr / 1000.0;
+            return khz == (int)khz ? $"{(int)khz} kHz" : $"{khz:F1} kHz";
+        }
+    }
+
+    /// <summary>
+    /// Maximum bit depth supported by the audio device (e.g. "32 bit").
+    /// </summary>
+    public string DeviceMaxBitDepthText
+    {
+        get
+        {
+            int maxBd = _audioService.DeviceCapabilities.MaxBitDepth;
+            return maxBd > 0 ? $"{maxBd} bit" : "";
+        }
+    }
+
+    /// <summary>
+    /// Audio device name for display.
+    /// </summary>
+    public string DeviceNameText
+    {
+        get
+        {
+            string name = _audioService.DeviceCapabilities.DeviceName;
+            return string.IsNullOrEmpty(name) ? "" : name;
+        }
+    }
+
+    public string BitPerfectStatusText
+    {
+        get
+        {
+            if (!_bitPerfectMode || !_isPlaying)
+                return "Bit Perfect: Off";
+
+            return _bitPerfectStatus switch
+            {
+                BitPerfectStatus.Perfect => "Bit Perfect: ✓",
+                BitPerfectStatus.Limited => "Bit Perfect: Limited",
+                _ => "Bit Perfect: Off"
+            };
+        }
+    }
+
+    /// <summary>
+    /// Color for the Bit Perfect status indicator.
+    /// Green for Perfect, yellow for Limited, gray for Off.
+    /// </summary>
+    public string BitPerfectStatusColor
+    {
+        get
+        {
+            if (!_bitPerfectMode || !_isPlaying)
+                return "#555555";
+
+            return _bitPerfectStatus switch
+            {
+                BitPerfectStatus.Perfect => "#4CAF50",  // Green
+                BitPerfectStatus.Limited => "#FFC107",  // Yellow/Amber
+                _ => "#555555"
+            };
+        }
     }
 
     private void UpdateMarqueeText()
@@ -738,7 +838,7 @@ public class MainViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Background playlist load error: {ex.Message}");
+            Logger.Log($"Background playlist load error: {ex.Message}");
         }
     }
 
@@ -759,20 +859,25 @@ public class MainViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Background library scan error: {ex.Message}");
+            Logger.Log($"Background library scan error: {ex.Message}");
         }
     }
 
     /// <summary>
     /// Try to switch to Bit Perfect mode with a timeout.
+    /// Runs the switch on the UI thread (Dispatcher) so that WasapiOut
+    /// is created in the correct synchronization context.
     /// Returns true if successful, false if timeout or error.
     /// </summary>
     private async Task<bool> TrySwitchToBitPerfectAsync()
     {
         var tcs = new TaskCompletionSource<bool>();
 
-        // Run the switch on a background thread to avoid blocking UI
-        Thread bgThread = new Thread(() =>
+        // Run the switch on the UI thread via Dispatcher.
+        // WasapiOut must be created on a thread with a stable synchronization
+        // context (UI thread or a dedicated STA thread). Using the UI thread
+        // is the simplest and most reliable approach.
+        System.Windows.Application.Current.Dispatcher.Invoke(() =>
         {
             try
             {
@@ -781,12 +886,10 @@ public class MainViewModel : INotifyPropertyChanged
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Bit Perfect mode switch failed: {ex.Message}");
+                Logger.Log($"Bit Perfect mode switch failed: {ex.Message}");
                 tcs.TrySetResult(false);
             }
         });
-        bgThread.SetApartmentState(ApartmentState.STA); // NAudio may need STA
-        bgThread.Start();
 
         // Wait with timeout (5 seconds)
         var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(5000));
@@ -796,7 +899,7 @@ public class MainViewModel : INotifyPropertyChanged
         }
         else
         {
-            System.Diagnostics.Debug.WriteLine("Bit Perfect mode switch timed out after 5s");
+            Logger.Log("Bit Perfect mode switch timed out after 5s");
             return false;
         }
     }
