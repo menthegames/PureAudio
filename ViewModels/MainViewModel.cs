@@ -471,6 +471,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     private void OnTrackChanged(AudioFile track)
     {
+        Logger.Log($"OnTrackChanged: audioService.CurrentBitDepth = {_audioService.CurrentBitDepth}, audioService.CurrentSampleRate = {_audioService.CurrentSampleRate}");
         CurrentTrack = track;
         StatusText = "Playing";
         OnPropertyChanged(nameof(PlayPauseIcon));
@@ -557,6 +558,10 @@ public class MainViewModel : INotifyPropertyChanged
         {
             IsBitPerfectMode = enabled;
             _settingsService.Update(s => s.BitPerfectEnabled = enabled);
+            
+            // Refresh the library tree when switching modes
+            // (Exclusive mode may affect how files are displayed)
+            ExpandedPanel.ApplyFilter();
         });
     }
 

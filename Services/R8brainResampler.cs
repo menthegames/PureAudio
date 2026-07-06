@@ -1,7 +1,9 @@
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using NAudio.Wave;
 using PureAudio.Helpers;
+
 
 namespace PureAudio.Services;
 
@@ -113,24 +115,86 @@ internal class R8brainResampler : IWaveProvider, IDisposable
             $"{outputFormat.SampleRate}Hz/{outputFormat.BitsPerSample}bit/{outputFormat.Channels}ch, ratio={_ratio:F6}");
 
         // Initialize r8brain
-        // R8BRAIN_Initialize(ratio, srcSampleRate, dstSampleRate, channels, quality)
-        // quality: 0=fast, 1=medium, 2=best (we use best for audiophile quality)
-        int quality = 2; // Best quality
-        _srcState = R8BRAIN_Initialize(_ratio, sourceFormat.SampleRate, outputFormat.SampleRate,
-            sourceFormat.Channels, quality);
+        // r8b_create(SrcSampleRate, DstSampleRate, MaxInLen, ReqLatency, nChannels, Flags)
+        // Flags: 0=low, 1=medium, 2=high, 3=very high
+        int maxInLen = 4096; // Max input samples per channel per call
+        double reqLatency = 0.0; // Auto/minimal latency
+        int flags = 3; // Very high quality (best for audiophile)
+
+        Logger.Log($"R8brainResampler: calling r8b_create(srcRate={sourceFormat.SampleRate}, " +
+            $"dstRate={outputFormat.SampleRate}, maxInLen={maxInLen}, reqLatency={reqLatency}, " +
+            $"channels={sourceFormat.Channels}, flags={flags})");
+
+        // Try calling r8b_create in a separate thread with timeout to detect hangs
+        IntPtr state = IntPtr.Zero;
+        Exception? createException = null;
+        bool completed = false;
+
+        Thread createThread = new Thread(() =>
+        {
+            try
+            {
+                Logger.Log("R8brainResampler: r8b_create calling from background thread...");
+                state = r8b_create(
+                    (double)sourceFormat.SampleRate,
+                    (double)outputFormat.SampleRate,
+                    maxInLen,
+                    reqLatency,
+                    sourceFormat.Channels,
+                    flags);
+                Logger.Log($"R8brainResampler: r8b_create returned IntPtr=0x{state.ToInt64():X}");
+            }
+            catch (Exception ex)
+            {
+                createException = ex;
+                Logger.Log($"R8brainResampler: r8b_create threw exception: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                completed = true;
+            }
+        });
+        createThread.IsBackground = true;
+        createThread.Start();
+
+        // Wait up to 5 seconds for completion
+        DateTime start = DateTime.UtcNow;
+        while (!completed && (DateTime.UtcNow - start).TotalSeconds < 5)
+        {
+            Thread.Sleep(100);
+        }
+
+        if (!completed)
+        {
+            Logger.Log("R8brainResampler: r8b_create TIMEOUT after 5 seconds — aborting thread");
+            createThread.Interrupt();
+            throw new InvalidOperationException("r8b_create timed out after 5 seconds");
+        }
+
+        if (createException != null)
+        {
+            throw new InvalidOperationException($"r8b_create failed with exception: {createException.Message}", createException);
+        }
+
+        _srcState = state;
 
         if (_srcState == IntPtr.Zero)
         {
-            throw new InvalidOperationException("R8BRAIN_Initialize failed to create resampler state.");
+            Logger.Log("R8brainResampler: r8b_create returned IntPtr.Zero — FAILED");
+            throw new InvalidOperationException("r8b_create failed to create resampler state.");
         }
 
-        // Calculate max input length for the resampler
-        _maxInputLen = R8BRAIN_GetMaxInputLen(_srcState);
+        Logger.Log("R8brainResampler: r8b_create succeeded");
+
+
+        // r8brain-free doesn't have GetMaxInputLen — use a reasonable default
+        _maxInputLen = 4096;
 
         // Allocate read buffer
         _readBuffer = new byte[ReadBufferSize];
 
         Logger.Log("R8brainResampler: initialized successfully");
+
     }
 
     public WaveFormat WaveFormat => _outputFormat;
@@ -179,31 +243,40 @@ internal class R8brainResampler : IWaveProvider, IDisposable
 
             PcmToDouble(_readBuffer, 0, _inputBuffer, sampleCount);
 
-            // Process through r8brain
-            int outputSamples = R8BRAIN_Process(_srcState, _inputBuffer, sampleCount, out IntPtr outputPtr);
-
-            if (outputSamples > 0 && outputPtr != IntPtr.Zero)
+            // Process through r8brain — pin the input buffer to prevent GC from moving it
+            GCHandle inputHandle = GCHandle.Alloc(_inputBuffer, GCHandleType.Pinned);
+            try
             {
-                // Convert double samples back to PCM
-                int outputSampleCount = outputSamples * _sourceChannels;
-                if (_outputBuffer == null || _outputBuffer.Length < outputSampleCount)
-                    _outputBuffer = new double[outputSampleCount];
+                IntPtr inputPtr = inputHandle.AddrOfPinnedObject();
+                int outputSamples = r8b_process(_srcState, inputPtr, sampleCount, out IntPtr outputPtr);
 
-                Marshal.Copy(outputPtr, _outputBuffer, 0, outputSampleCount);
+                if (outputSamples > 0 && outputPtr != IntPtr.Zero)
+                {
+                    // Convert double samples back to PCM
+                    int outputSampleCount = outputSamples * _sourceChannels;
+                    if (_outputBuffer == null || _outputBuffer.Length < outputSampleCount)
+                        _outputBuffer = new double[outputSampleCount];
 
-                // Convert to PCM bytes
-                int outputBytes = outputSamples * (_outputFormat.BitsPerSample / 8) * _outputFormat.Channels;
-                if (_pcmOutputBuffer == null || _pcmOutputBuffer.Length < outputBytes)
-                    _pcmOutputBuffer = new byte[outputBytes];
+                    Marshal.Copy(outputPtr, _outputBuffer, 0, outputSampleCount);
 
-                DoubleToPcm(_outputBuffer, _pcmOutputBuffer, outputSamples);
+                    // Convert to PCM bytes
+                    int outputBytes = outputSamples * (_outputFormat.BitsPerSample / 8) * _outputFormat.Channels;
+                    if (_pcmOutputBuffer == null || _pcmOutputBuffer.Length < outputBytes)
+                        _pcmOutputBuffer = new byte[outputBytes];
 
-                _outputBufferLen = outputBytes;
+                    DoubleToPcm(_outputBuffer, _pcmOutputBuffer, outputSamples);
+
+                    _outputBufferLen = outputBytes;
+                }
+                else
+                {
+                    // No output yet — r8brain needs more input samples
+                    continue;
+                }
             }
-            else
+            finally
             {
-                // No output yet — r8brain needs more input samples
-                continue;
+                inputHandle.Free();
             }
         }
 
@@ -215,7 +288,11 @@ internal class R8brainResampler : IWaveProvider, IDisposable
         written = 0;
 
         // Flush remaining samples from r8brain
-        int outputSamples = R8BRAIN_Flush(_srcState, out IntPtr outputPtr);
+        // r8brain-free doesn't have a separate flush — use r8b_process with 0 input
+        // or just return 0 since we've already processed all data
+        int outputSamples = 0;
+        IntPtr outputPtr = IntPtr.Zero;
+
 
         if (outputSamples > 0 && outputPtr != IntPtr.Zero)
         {
@@ -331,72 +408,70 @@ internal class R8brainResampler : IWaveProvider, IDisposable
         {
             if (_srcState != IntPtr.Zero)
             {
-                R8BRAIN_Delete(_srcState);
+                r8b_delete(_srcState);
                 _srcState = IntPtr.Zero;
             }
+
             _disposed = true;
         }
     }
 
     // ════════════════════════════════════════════════════════════════
     //  r8brain P/Invoke declarations
+    //  Based on r8brain-free (r8bsrc.dll) exports:
+    //    r8b_create, r8b_process, r8b_delete, r8b_clear
     // ════════════════════════════════════════════════════════════════
 
     private const string DllName = "r8bsrc.dll";
 
     /// <summary>
-    /// Initialize the r8brain resampler.
+    /// Create the r8brain resampler.
+    /// r8b_create(SrcSampleRate, DstSampleRate, MaxInLen, ReqLatency, nChannels, Flags) -> void*
     /// </summary>
-    /// <param name="ratio">Resampling ratio (outputSampleRate / inputSampleRate).</param>
-    /// <param name="srcSampleRate">Source sample rate in Hz.</param>
-    /// <param name="dstSampleRate">Destination sample rate in Hz.</param>
-    /// <param name="channels">Number of channels (1 or 2).</param>
-    /// <param name="quality">Quality: 0=fast, 1=medium, 2=best.</param>
+    /// <param name="srcSampleRate">Source sample rate in Hz (double).</param>
+    /// <param name="dstSampleRate">Destination sample rate in Hz (double).</param>
+    /// <param name="maxInLen">Maximum input length in samples per channel.</param>
+    /// <param name="reqLatency">Required latency in seconds (0 = auto/minimal).</param>
+    /// <param name="nChannels">Number of channels (1 or 2).</param>
+    /// <param name="flags">Quality flags: 0=low, 1=medium, 2=high, 3=very high.</param>
     /// <returns>Pointer to resampler state, or IntPtr.Zero on failure.</returns>
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr R8BRAIN_Initialize(
-        double ratio,
-        int srcSampleRate,
-        int dstSampleRate,
-        int channels,
-        int quality);
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "r8b_create")]
+    private static extern IntPtr r8b_create(
+        double srcSampleRate,
+        double dstSampleRate,
+        int maxInLen,
+        double reqLatency,
+        int nChannels,
+        int flags);
+
 
     /// <summary>
     /// Process input samples through the resampler.
+    /// r8b_process(state, input, inputSampleCount, out output) -> int
     /// </summary>
-    /// <param name="state">Resampler state from R8BRAIN_Initialize.</param>
-    /// <param name="input">Input samples as doubles (interleaved).</param>
+    /// <param name="state">Resampler state from r8b_create.</param>
+    /// <param name="input">Pointer to input samples as doubles (interleaved).</param>
     /// <param name="inputSampleCount">Number of input samples (per channel).</param>
     /// <param name="output">Output pointer for resampled data.</param>
     /// <returns>Number of output samples (per channel) produced.</returns>
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int R8BRAIN_Process(
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "r8b_process")]
+    private static extern int r8b_process(
         IntPtr state,
-        [In] double[] input,
+        IntPtr input,
         int inputSampleCount,
         out IntPtr output);
 
     /// <summary>
-    /// Flush remaining samples from the resampler (call when input is exhausted).
+    /// Clear/flush the resampler internal state.
+    /// r8b_clear(state)
     /// </summary>
-    /// <param name="state">Resampler state.</param>
-    /// <param name="output">Output pointer for remaining resampled data.</param>
-    /// <returns>Number of output samples (per channel) produced.</returns>
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int R8BRAIN_Flush(
-        IntPtr state,
-        out IntPtr output);
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "r8b_clear")]
+    private static extern void r8b_clear(IntPtr state);
 
     /// <summary>
     /// Delete the resampler state and free resources.
+    /// r8b_delete(state)
     /// </summary>
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern void R8BRAIN_Delete(IntPtr state);
-
-    /// <summary>
-    /// Get the maximum input length (in samples per channel) that the resampler
-    /// can process in one call.
-    /// </summary>
-    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int R8BRAIN_GetMaxInputLen(IntPtr state);
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "r8b_delete")]
+    private static extern void r8b_delete(IntPtr state);
 }

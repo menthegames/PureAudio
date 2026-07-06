@@ -67,6 +67,8 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
                 var reader = new FlacReader(filePath);
                 var format = reader.WaveFormat;
                 
+                Logger.Log($"BitPerfectWaveProvider: FlacReader format = {format.SampleRate}Hz/{format.BitsPerSample}bit/{format.Channels}ch, Encoding={format.Encoding}, BlockAlign={format.BlockAlign}, AverageBytesPerSecond={format.AverageBytesPerSecond}");
+                
                 // ВАЛИДАЦИЯ: Проверяем корректность формата
                 bool isValidFormat = (format.BitsPerSample == 8 || format.BitsPerSample == 16 || 
                                       format.BitsPerSample == 24 || format.BitsPerSample == 32) &&
@@ -76,6 +78,8 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
                                       format.SampleRate == 352800 || format.SampleRate == 384000) &&
                                      (format.Channels == 1 || format.Channels == 2);
                 
+                Logger.Log($"BitPerfectWaveProvider: FLAC isValidFormat={isValidFormat}");
+                
                 if (!isValidFormat)
                 {
                     Logger.Log($"BitPerfectWaveProvider: FLAC has invalid format {format.SampleRate}Hz/{format.BitsPerSample}bit/{format.Channels}ch, falling back to AudioFileReader");
@@ -84,6 +88,7 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
                     // Fallback на AudioFileReader (декодирует в 32-bit Float)
                     var audioReader = new AudioFileReader(filePath);
                     audioReader.Volume = 1.0f;
+                    Logger.Log($"BitPerfectWaveProvider: AudioFileReader format = {audioReader.WaveFormat.SampleRate}Hz/{audioReader.WaveFormat.BitsPerSample}bit/{audioReader.WaveFormat.Channels}ch, Encoding={audioReader.WaveFormat.Encoding}");
                     _sourceProvider = audioReader;
                     _disposableSource = audioReader;
                     _audioFileReader = audioReader;
@@ -92,13 +97,14 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
                 }
                 else
                 {
+                    Logger.Log($"BitPerfectWaveProvider: using FlacReader directly");
                     _sourceProvider = reader;
                     _disposableSource = reader;
                     _totalPcmBytes = reader.TotalPcmBytes;
                     _useAudioFileReader = false;
                 }
                 
-                Logger.Log($"BitPerfectWaveProvider: FLAC - {format.SampleRate}Hz/{format.BitsPerSample}bit/{format.Channels}ch");
+                Logger.Log($"BitPerfectWaveProvider: FLAC final source format = {_sourceProvider.WaveFormat.SampleRate}Hz/{_sourceProvider.WaveFormat.BitsPerSample}bit/{_sourceProvider.WaveFormat.Channels}ch");
                 if (_fftService != null)
                     _fftService.SetSampleRate(format.SampleRate);
                 break;
@@ -546,6 +552,8 @@ public class AudioService : IDisposable
         try
         {
             _fftService.Reset();
+
+            Logger.Log($"PlayInternal: file {currentItem.AudioFile.FilePath}, Metadata says {currentItem.AudioFile.BitsPerSample} bit / {currentItem.AudioFile.SampleRate} Hz");
 
             if (_bitPerfectMode)
             {

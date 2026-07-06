@@ -7,6 +7,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <NoWarn>NU1701</NoWarn>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
 
     <!-- Иконка приложения -->
     <ApplicationIcon>music_icon.ico</ApplicationIcon>
@@ -35,6 +37,15 @@
 
   <ItemGroup>
     <EmbeddedResource Update="Properties\Strings.resx" />
+  </ItemGroup>
+
+  <!-- Исключаем тестовые файлы из сборки -->
+  <ItemGroup>
+    <Compile Remove="TestR8b\**\*.cs" />
+    <Content Include="TestR8b\**\*.*" />
+    <Compile Remove="test_r8b.cs" />
+    <Compile Remove="check_dll.py" />
+    <Compile Remove="check_sections.py" />
   </ItemGroup>
 
   <!-- Явно включаем иконку в выходную директорию -->
