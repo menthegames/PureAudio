@@ -46,6 +46,11 @@
 
   <!-- libFLAC.dll больше не нужен — BunLabs.NAudio.Flac не требует нативной DLL -->
   
+  <!-- Копируем r8bsrc.dll в выходную директорию для ресемплинга в Exclusive режиме -->
+  <Target Name="CopyR8brainDll" AfterTargets="AfterBuild">
+    <Copy SourceFiles="libs\r8bsrc.dll" DestinationFolder="$(OutDir)" Condition="Exists('libs\r8bsrc.dll')" />
+  </Target>
+  
   <!-- Сплэш-изображение вшиваем в сборку как WPF Resource -->
   <ItemGroup>
     <Resource Include="PureAudio.png" />

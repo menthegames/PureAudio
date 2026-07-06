@@ -573,14 +573,22 @@ public class AudioService : IDisposable
                     {
                         Logger.Log($"PlayInternal (Bit Perfect): resampling from {sourceSr}/{sourceBd} to {bestFormat.SampleRate}/{bestFormat.BitsPerSample}");
                         
-                        // Используем MediaFoundationResampler для качественного ресемплинга
+                        // Используем R8brainResampler для качественного ресемплинга
                         try
                         {
-                            outputProvider = new MediaFoundationResampler(_bitPerfectProvider, bestFormat);
+                            if (R8brainResampler.IsDllAvailable())
+                            {
+                                outputProvider = new R8brainResampler(_bitPerfectProvider, bestFormat!);
+                            }
+                            else
+                            {
+                                Logger.Log($"PlayInternal (Bit Perfect): r8bsrc.dll not available, falling back to Shared");
+                                bpStatus = BitPerfectStatus.Off;
+                            }
                         }
                         catch (Exception resampleEx)
                         {
-                            Logger.Log($"PlayInternal (Bit Perfect): MediaFoundationResampler failed: {resampleEx.Message}, falling back to Shared");
+                            Logger.Log($"PlayInternal (Bit Perfect): R8brainResampler failed: {resampleEx.Message}, falling back to Shared");
                             bpStatus = BitPerfectStatus.Off;
                         }
                     }
