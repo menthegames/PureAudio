@@ -397,7 +397,7 @@
                                     Style="{StaticResource GhostButtonStyle}" />
                         </StackPanel>
 
-                        <!-- Row 3: Library mode + Add Source -->
+                        <!-- Row 3: Library mode -->
                         <StackPanel Orientation="Horizontal"
                                     HorizontalAlignment="Center"
                                     Margin="0,0,0,10">
@@ -405,10 +405,6 @@
                                     Margin="0,0,6,0"
                                     Content="{Binding LibraryModeText}"
                                     Command="{Binding ToggleLibraryModeCommand}"
-                                    FontSize="11" />
-                            <Button Width="108" Height="30"
-                                    Content="{Binding AddSourceText}"
-                                    Command="{Binding AddSourceCommand}"
                                     FontSize="11" />
                         </StackPanel>
 
@@ -540,6 +536,14 @@
                             VerticalAlignment="Center"
                             ToolTip="Rescan library sources for new files"
                             Command="{Binding ExpandedPanel.RefreshLibraryCommand}" />
+                    <!-- Add Source Button -->
+                    <Button Content="{Binding AddSourceText}"
+                            Width="24" Height="24"
+                            FontSize="12"
+                            Margin="4,0,0,0"
+                            VerticalAlignment="Center"
+                            ToolTip="Add a source folder to the library"
+                            Command="{Binding AddSourceCommand}" />
                 </StackPanel>
             </Border>
 
