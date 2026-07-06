@@ -40,19 +40,6 @@
     <EmbeddedResource Update="Properties\Strings.resx" />
   </ItemGroup>
 
-  <!-- Исключаем тестовые файлы из сборки -->
-  <ItemGroup>
-    <Compile Remove="TestR8b\**\*.cs" />
-    <Content Include="TestR8b\**\*.*" />
-    <Compile Remove="InspectSox\**\*.cs" />
-    <Compile Remove="InspectNAudio\**\*.cs" />
-    <Compile Remove="test_r8b.cs" />
-    <Compile Remove="check_dll.py" />
-    <Compile Remove="check_sections.py" />
-    <Compile Remove="check_exports.py" />
-    <Compile Remove="DiagnoseExclusive\**\*.cs" />
-  </ItemGroup>
-
   <!-- Явно включаем иконку в выходную директорию -->
   <ItemGroup>
     <Content Include="music_icon.ico">
@@ -60,10 +47,6 @@
     </Content>
   </ItemGroup>
 
-  <!-- libFLAC.dll больше не нужен — BunLabs.NAudio.Flac не требует нативной DLL -->
-  
-  <!-- r8bsrc.dll больше не нужен — используем встроенный WDL resampler из NAudio -->
-  
   <!-- Сплэш-изображение вшиваем в сборку как WPF Resource -->
   <ItemGroup>
     <Resource Include="PureAudio.png" />
