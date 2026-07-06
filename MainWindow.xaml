@@ -432,26 +432,10 @@
                                     IsEnabled="{Binding IsVolumeActive}" />
                         </StackPanel>
 
-                        <!-- Row 5: Help + Expand -->
-                        <StackPanel Orientation="Horizontal"
-                                    HorizontalAlignment="Right"
-                                    Margin="0,0,0,0">
-                            <Button Width="36" Height="36"
-                                    Margin="0,0,6,0"
-                                    Content="?"
-                                    Command="{Binding ShowHelpCommand}"
-                                    FontSize="14"
-                                    Style="{StaticResource GhostButtonStyle}" />
-                            <Button Width="36" Height="36"
-                                    Content="{Binding ExpandIcon}"
-                                    Command="{Binding ToggleExpandedCommand}"
-                                    FontSize="14"
-                                    Style="{StaticResource GhostButtonStyle}" />
-                        </StackPanel>
                     </StackPanel>
                 </Grid>
 
-                <!-- ── Window Control Buttons ── -->
+                <!-- ── Window Control Buttons (horizontal) ── -->
                 <StackPanel Grid.Column="2"
                             Orientation="Horizontal"
                             HorizontalAlignment="Right"
@@ -471,6 +455,28 @@
                             Padding="0"
                             Click="CloseButton_Click"
                             ToolTip="Close"
+                            Style="{StaticResource GhostButtonStyle}" />
+                </StackPanel>
+                <!-- Help + Expand (vertical, below window buttons) -->
+                <StackPanel Grid.Column="2"
+                            Orientation="Vertical"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Margin="0,34,6,0">
+                    <Button Width="22" Height="22"
+                            Margin="0,0,0,4"
+                            Content="?"
+                            Command="{Binding ShowHelpCommand}"
+                            FontSize="11"
+                            Padding="0"
+                            ToolTip="Help"
+                            Style="{StaticResource GhostButtonStyle}" />
+                    <Button Width="22" Height="22"
+                            Content="{Binding ExpandIcon}"
+                            Command="{Binding ToggleExpandedCommand}"
+                            FontSize="11"
+                            Padding="0"
+                            ToolTip="Toggle Expanded View"
                             Style="{StaticResource GhostButtonStyle}" />
                 </StackPanel>
             </Grid>
