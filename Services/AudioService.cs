@@ -674,22 +674,26 @@ public class AudioService : IDisposable
                 _audioFileReader = new AudioFileReader(currentItem.AudioFile.FilePath);
                 _audioFileReader.Volume = _volume;
 
-                Logger.Log($"PlayInternal (Shared): opened file, total={_audioFileReader.TotalTime.TotalSeconds:F3}s");
+                Logger.Log($"PlayInternal (Shared): opened file, total={_audioFileReader.TotalTime.TotalSeconds:F3}s, format={_audioFileReader.WaveFormat.SampleRate}Hz/{_audioFileReader.WaveFormat.BitsPerSample}bit/{_audioFileReader.WaveFormat.Channels}ch");
 
                 if (position < _audioFileReader.TotalTime)
                 {
                     _audioFileReader.CurrentTime = position;
                 }
 
-                // Оборачиваем AudioFileReader в FftSampleProvider, чтобы спектр (FFT) работал в Shared режиме!
+                // ВАЖНО: AudioFileReader сам реализует ISampleProvider (через WaveStream).
+                // Оборачиваем его в FftSampleProvider, чтобы спектр (FFT) работал в Shared режиме.
+                // FftSampleProvider принимает ISampleProvider и передаёт данные в FftService.
                 var fftProvider = new FftSampleProvider(_audioFileReader, _fftService);
 
                 _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
                 _outputDevice.PlaybackStopped += OnPlaybackStopped;
 
-                // WasapiOut отлично принимает ISampleProvider (которым является FftSampleProvider)
+                // WasapiOut.Init(ISampleProvider) — принимает ISampleProvider и сам конвертирует в IWaveProvider
                 _outputDevice.Init(fftProvider);
+                Logger.Log($"PlayInternal (Shared): WasapiOut initialized, calling Play()");
                 _outputDevice.Play();
+                Logger.Log($"PlayInternal (Shared): Play() called successfully");
             }
 
             _isPlaying = true;
@@ -744,15 +748,39 @@ public class AudioService : IDisposable
         if (_outputDevice != null && _isPlaying)
         {
             _pausePosition = CurrentPosition;
-            Logger.Log($"PAUSE: saved position = {_pausePosition.TotalSeconds:F3}s");
+            Logger.Log($"PAUSE: saved position = {_pausePosition.TotalSeconds:F3}s, bitPerfectMode={_bitPerfectMode}");
 
             _isPlaying = false;
             _isPaused = true;
             PlayStateChanged?.Invoke(false);
 
-            _outputDevice.PlaybackStopped -= OnPlaybackStopped;
-            _outputDevice.Stop();
-            _outputDevice.PlaybackStopped += OnPlaybackStopped;
+            if (_bitPerfectMode)
+            {
+                // В Exclusive режиме: полная остановка с очисткой ресурсов.
+                // WASAPI Exclusive не поддерживает паузу с сохранением позиции —
+                // AudioClient.Stop() сбрасывает состояние буфера.
+                // При возобновлении сделаем полный перезапуск через PlayInternal(_pausePosition).
+                Logger.Log($"PAUSE (Exclusive): doing full stop+cleanup, will resume from {_pausePosition.TotalSeconds:F3}s");
+                
+                // Отписываемся, чтобы OnPlaybackStopped не вызвал Next()
+                _outputDevice.PlaybackStopped -= OnPlaybackStopped;
+                _outputDevice.Stop();
+                _outputDevice.Dispose();
+                _outputDevice = null;
+                
+                if (_bitPerfectProvider != null)
+                {
+                    _bitPerfectProvider.Dispose();
+                    _bitPerfectProvider = null;
+                }
+            }
+            else
+            {
+                // В Shared режиме: просто стопим, позиция сохраняется в AudioFileReader
+                _outputDevice.PlaybackStopped -= OnPlaybackStopped;
+                _outputDevice.Stop();
+                _outputDevice.PlaybackStopped += OnPlaybackStopped;
+            }
         }
     }
 
@@ -760,21 +788,19 @@ public class AudioService : IDisposable
     {
         if (_isPaused)
         {
-            Logger.Log($"RESUME: restoring position = {_pausePosition.TotalSeconds:F3}s");
+            Logger.Log($"RESUME: restoring position = {_pausePosition.TotalSeconds:F3}s, bitPerfectMode={_bitPerfectMode}");
 
-            if (_outputDevice != null && (_audioFileReader != null || _bitPerfectProvider != null))
+            if (_bitPerfectMode)
             {
-                if (_bitPerfectMode && _bitPerfectProvider != null)
-                {
-                    // НЕ вызываем Seek()! FlacReader должен сохранить позицию после Pause()
-                    // Просто продолжаем воспроизведение
-                    Logger.Log($"RESUME (Bit Perfect): continuing from current position");
-                }
-                else if (_audioFileReader != null)
-                {
-                    if (_pausePosition < _audioFileReader.TotalTime)
-                        _audioFileReader.CurrentTime = _pausePosition;
-                }
+                // В Exclusive режиме: полный перезапуск с сохранённой позиции
+                Logger.Log($"RESUME (Exclusive): full restart from {_pausePosition.TotalSeconds:F3}s");
+                PlayInternal(_pausePosition);
+            }
+            else if (_outputDevice != null && _audioFileReader != null)
+            {
+                // В Shared режиме: просто продолжаем
+                if (_pausePosition < _audioFileReader.TotalTime)
+                    _audioFileReader.CurrentTime = _pausePosition;
 
                 _outputDevice.Play();
                 _isPlaying = true;
