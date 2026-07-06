@@ -29,7 +29,7 @@ internal class R8brainResampler : IWaveProvider, IDisposable
 
     // Buffers
     private double[]? _inputBuffer;
-    private double[]? _outputBuffer;
+    private double[]? _outputDoubleBuffer;
     private byte[]? _pcmOutputBuffer;
     private int _outputBufferPos;
     private int _outputBufferLen;
@@ -42,6 +42,17 @@ internal class R8brainResampler : IWaveProvider, IDisposable
     // For reading from source
     private readonly byte[] _readBuffer;
     private const int ReadBufferSize = 65536; // 64KB read chunks
+
+    // Accumulation buffer for feeding r8brain in large enough blocks
+    // Using a double[] with position index to avoid ToArray() copies
+    private double[] _accumulatedInput = new double[65536];
+    private int _accumulatedCount;
+    private const int MinFramesPerProcess = 1024; // Minimum frames to feed r8brain at once
+    private const int MaxAccumulatedFrames = 65536; // Maximum frames to accumulate before forcing processing
+    private readonly int _outputBytesPerFrame;
+
+    // End-of-stream flag
+    private bool _sourceExhausted;
 
     private static bool _dllChecked;
     private static bool _dllAvailable;
@@ -109,6 +120,9 @@ internal class R8brainResampler : IWaveProvider, IDisposable
 
         // Calculate resampling ratio
         _ratio = (double)outputFormat.SampleRate / sourceFormat.SampleRate;
+
+        // Output bytes per frame (one sample per channel)
+        _outputBytesPerFrame = (outputFormat.BitsPerSample / 8) * outputFormat.Channels;
 
         Logger.Log(
             $"R8brainResampler: initializing {sourceFormat.SampleRate}Hz/{sourceFormat.BitsPerSample}bit/{sourceFormat.Channels}ch -> " +
@@ -214,116 +228,272 @@ internal class R8brainResampler : IWaveProvider, IDisposable
                 continue;
             }
 
-            // Need more data — read from source
+            // Output buffer is empty — need to produce more data
             _outputBufferPos = 0;
             _outputBufferLen = 0;
 
-            // Calculate how many input samples we need
-            int inputSamplesNeeded = _maxInputLen;
-            int inputBytesNeeded = inputSamplesNeeded * _sourceBytesPerSample * _sourceChannels;
-
-            // Read from source
-            int bytesRead = _sourceProvider.Read(_readBuffer, 0, Math.Min(inputBytesNeeded, _readBuffer.Length));
-
-            if (bytesRead <= 0)
+            // If source is exhausted, try to flush remaining data from r8brain
+            if (_sourceExhausted)
             {
-                // No more data — flush remaining samples
-                FlushResampler(buffer, offset + totalBytesWritten, count - totalBytesWritten, out int flushed);
+                int flushed = FlushRemaining(buffer, offset + totalBytesWritten, count - totalBytesWritten);
                 totalBytesWritten += flushed;
                 break;
             }
 
-            // Convert PCM bytes to double samples for r8brain
-            int sampleCount = bytesRead / (_sourceBytesPerSample * _sourceChannels);
-            if (sampleCount <= 0) continue;
-
-            if (_inputBuffer == null || _inputBuffer.Length < sampleCount * _sourceChannels)
-                _inputBuffer = new double[sampleCount * _sourceChannels];
-
-            PcmToDouble(_readBuffer, 0, _inputBuffer, sampleCount);
-
-            // Process through r8brain — pin the input buffer to prevent GC from moving it
-            GCHandle inputHandle = GCHandle.Alloc(_inputBuffer, GCHandleType.Pinned);
-            try
+            // Process ALL accumulated data first before reading more from source.
+            // This prevents unbounded growth of _accumulatedCount.
+            if (_accumulatedCount >= MinFramesPerProcess * _sourceChannels)
             {
-                IntPtr inputPtr = inputHandle.AddrOfPinnedObject();
-                IntPtr outputPtr = IntPtr.Zero;
-                int outputSamples = r8b_process(_srcState, inputPtr, sampleCount, ref outputPtr);
-
-                if (outputSamples > 0 && outputPtr != IntPtr.Zero)
+                // Process accumulated data in chunks until output buffer fills up
+                // or all accumulated data is consumed
+                int maxProcessIterations = 100; // Safety limit
+                int processIterations = 0;
+                while (_accumulatedCount >= MinFramesPerProcess * _sourceChannels && processIterations < maxProcessIterations)
                 {
-                    // Convert double samples back to PCM
-                    int outputSampleCount = outputSamples * _sourceChannels;
-                    if (_outputBuffer == null || _outputBuffer.Length < outputSampleCount)
-                        _outputBuffer = new double[outputSampleCount];
-
-                    Marshal.Copy(outputPtr, _outputBuffer, 0, outputSampleCount);
-
-                    // Convert to PCM bytes
-                    int outputBytes = outputSamples * (_outputFormat.BitsPerSample / 8) * _outputFormat.Channels;
-                    if (_pcmOutputBuffer == null || _pcmOutputBuffer.Length < outputBytes)
-                        _pcmOutputBuffer = new byte[outputBytes];
-
-                    DoubleToPcm(_outputBuffer, _pcmOutputBuffer, outputSamples);
-
-                    _outputBufferLen = outputBytes;
+                    processIterations++;
+                    if (!ProcessAccumulated())
+                        break; // Output buffer is full, will return to caller
                 }
-                else
-                {
-                    // No output yet — r8brain needs more input samples
+                
+                // If we produced output, loop back to copy it to the caller's buffer
+                if (_outputBufferLen > 0)
                     continue;
-                }
+                
+                // If we processed everything and still no output, we need more source data
+                // Fall through to read more
             }
-            finally
+
+            // Only read more source data if we don't have too much accumulated
+            int maxAccumSamples = MaxAccumulatedFrames * _sourceChannels;
+            if (_accumulatedCount < maxAccumSamples)
             {
-                inputHandle.Free();
+                // Read a large chunk from source (up to ReadBufferSize)
+                int bytesRead = _sourceProvider.Read(_readBuffer, 0, _readBuffer.Length);
+
+                if (bytesRead <= 0)
+                {
+                    _sourceExhausted = true;
+                    continue; // Will hit the exhausted branch above next iteration
+                }
+
+                // Convert PCM bytes to double samples (interleaved)
+                int framesRead = bytesRead / (_sourceBytesPerSample * _sourceChannels);
+
+                if (_inputBuffer == null || _inputBuffer.Length < framesRead * _sourceChannels)
+                    _inputBuffer = new double[framesRead * _sourceChannels];
+
+                PcmToDouble(_readBuffer, 0, _inputBuffer, framesRead);
+
+                // Add to accumulation buffer (grow if needed)
+                int samplesToAdd = framesRead * _sourceChannels;
+                EnsureAccumCapacity(samplesToAdd);
+                Array.Copy(_inputBuffer, 0, _accumulatedInput, _accumulatedCount, samplesToAdd);
+                _accumulatedCount += samplesToAdd;
+            }
+            else
+            {
+                // We have too much accumulated data and still no output.
+                // Force process with all accumulated data.
+                Logger.Log($"R8brainResampler.Read: forcing process of {_accumulatedCount / _sourceChannels} accumulated frames");
+                ProcessAccumulated();
+                
+                if (_outputBufferLen == 0)
+                {
+                    // r8brain still didn't produce output — this shouldn't happen.
+                    // Clear accumulated data to prevent infinite loop.
+                    Logger.Log($"R8brainResampler.Read: WARNING — clearing {_accumulatedCount} orphan samples");
+                    _accumulatedCount = 0;
+                }
             }
         }
 
         return totalBytesWritten;
     }
 
-    private void FlushResampler(byte[] buffer, int offset, int maxCount, out int written)
+
+    /// <summary>
+    /// Ensure the accumulation buffer has enough capacity for additional samples.
+    /// </summary>
+    private void EnsureAccumCapacity(int additionalSamples)
     {
-        written = 0;
-
-        // Flush remaining samples from r8brain
-        // r8brain-free doesn't have a separate flush — use r8b_process with 0 input
-        // or just return 0 since we've already processed all data
-        int outputSamples = 0;
-        IntPtr outputPtr = IntPtr.Zero;
-
-
-        if (outputSamples > 0 && outputPtr != IntPtr.Zero)
+        int needed = _accumulatedCount + additionalSamples;
+        if (needed > _accumulatedInput.Length)
         {
-            int outputSampleCount = outputSamples * _sourceChannels;
-            if (_outputBuffer == null || _outputBuffer.Length < outputSampleCount)
-                _outputBuffer = new double[outputSampleCount];
-
-            Marshal.Copy(outputPtr, _outputBuffer, 0, outputSampleCount);
-
-            int outputBytes = outputSamples * (_outputFormat.BitsPerSample / 8) * _outputFormat.Channels;
-            if (_pcmOutputBuffer == null || _pcmOutputBuffer.Length < outputBytes)
-                _pcmOutputBuffer = new byte[outputBytes];
-
-            DoubleToPcm(_outputBuffer, _pcmOutputBuffer, outputSamples);
-
-            int bytesToCopy = Math.Min(outputBytes, maxCount);
-            Array.Copy(_pcmOutputBuffer, 0, buffer, offset, bytesToCopy);
-            written = bytesToCopy;
+            int newSize = Math.Max(needed, _accumulatedInput.Length * 2);
+            Array.Resize(ref _accumulatedInput, newSize);
         }
+    }
+
+    /// <summary>
+    /// Process as much accumulated input as possible through r8brain.
+    /// Returns false if output buffer filled up and we should stop.
+    /// </summary>
+    private bool ProcessAccumulated()
+    {
+        int availableFrames = _accumulatedCount / _sourceChannels;
+        if (availableFrames < MinFramesPerProcess)
+            return true; // Not enough data yet
+
+        // Process up to _maxInputLen frames at a time
+        int framesToProcess = Math.Min(availableFrames, _maxInputLen);
+        int samplesToProcess = framesToProcess * _sourceChannels;
+
+        // Pin the accumulated buffer directly (no ToArray copy)
+        GCHandle inputHandle = GCHandle.Alloc(_accumulatedInput, GCHandleType.Pinned);
+        try
+        {
+            IntPtr inputPtr = inputHandle.AddrOfPinnedObject();
+            IntPtr outputPtr = IntPtr.Zero;
+
+            Logger.Log($"R8brainResampler.Process: calling r8b_process with {framesToProcess} input frames ({samplesToProcess} samples)");
+            int outputFrames = r8b_process(_srcState, inputPtr, framesToProcess, ref outputPtr);
+            Logger.Log($"R8brainResampler.Process: r8b_process returned {outputFrames} output frames, outputPtr=0x{outputPtr.ToInt64():X}");
+
+            if (outputFrames > 0 && outputPtr != IntPtr.Zero)
+            {
+                // Copy output double samples
+                int totalOutputSamples = outputFrames * _outputFormat.Channels;
+                if (_outputDoubleBuffer == null || _outputDoubleBuffer.Length < totalOutputSamples)
+                    _outputDoubleBuffer = new double[totalOutputSamples];
+
+                Marshal.Copy(outputPtr, _outputDoubleBuffer, 0, totalOutputSamples);
+
+                // Convert to PCM bytes
+                int outputBytes = outputFrames * _outputBytesPerFrame;
+                if (_pcmOutputBuffer == null || _pcmOutputBuffer.Length < outputBytes)
+                    _pcmOutputBuffer = new byte[outputBytes];
+
+                DoubleToPcm(_outputDoubleBuffer, _pcmOutputBuffer, outputFrames);
+
+                _outputBufferLen = outputBytes;
+                _outputBufferPos = 0;
+
+                Logger.Log($"R8brainResampler.Process: produced {outputBytes} bytes ({outputFrames} frames)");
+
+                // Remove processed frames from accumulation buffer by shifting remaining data
+                if (samplesToProcess <= _accumulatedCount)
+                {
+                    int remaining = _accumulatedCount - samplesToProcess;
+                    if (remaining > 0)
+                    {
+                        Array.Copy(_accumulatedInput, samplesToProcess, _accumulatedInput, 0, remaining);
+                    }
+                    _accumulatedCount = remaining;
+                    Logger.Log($"R8brainResampler.Process: removed {samplesToProcess} samples from accum, {_accumulatedCount} remaining");
+                }
+
+                // We have output — return false to let caller drain it first
+                return false;
+            }
+            else
+            {
+                Logger.Log("R8brainResampler.Process: r8b_process returned 0 output frames (needs more input) — keeping accumulated data");
+                // Do NOT remove samples from accumulator — r8brain needs more data to produce output
+                return true;
+            }
+        }
+        finally
+        {
+            inputHandle.Free();
+        }
+    }
+
+    /// <summary>
+    /// Flush remaining samples from r8brain by calling with 0 input.
+    /// </summary>
+    private int FlushRemaining(byte[] buffer, int offset, int maxCount)
+    {
+        int totalWritten = 0;
+
+        Logger.Log("R8brainResampler.FlushRemaining: flushing r8brain");
+
+        // First, process any remaining accumulated data
+        // Use a safety counter to prevent infinite loops
+        int safetyCounter = 0;
+        while (_accumulatedCount >= _sourceChannels && safetyCounter < 100)
+        {
+            safetyCounter++;
+            ProcessAccumulated();
+
+            if (_outputBufferLen > 0)
+            {
+                int bytesToCopy = Math.Min(_outputBufferLen, maxCount - totalWritten);
+                Array.Copy(_pcmOutputBuffer!, 0, buffer, offset + totalWritten, bytesToCopy);
+                totalWritten += bytesToCopy;
+                _outputBufferPos = bytesToCopy;
+                _outputBufferLen = 0;
+                Logger.Log($"R8brainResampler.FlushRemaining: flushed {bytesToCopy} bytes from accum");
+            }
+            else
+            {
+                break; // r8brain consumed all accumulated data without producing output
+            }
+        }
+
+        // If there's still accumulated data that couldn't be processed (less than 1 frame),
+        // just discard it — we can't do anything with it
+        if (_accumulatedCount > 0 && _accumulatedCount < _sourceChannels)
+        {
+            Logger.Log($"R8brainResampler.FlushRemaining: discarding {_accumulatedCount} orphan samples");
+            _accumulatedCount = 0;
+        }
+
+        // Now try to flush r8brain by calling with 0 input
+        // r8brain-free: calling r8b_process with 0 input may produce remaining output
+        // IMPORTANT: ip0 must be a valid pointer even when l=0 (CDSPProcessor::process expects valid double*)
+        double[] flushDummy = new double[1];
+        GCHandle flushHandle = GCHandle.Alloc(flushDummy, GCHandleType.Pinned);
+        try
+        {
+            IntPtr flushInputPtr = flushHandle.AddrOfPinnedObject();
+            IntPtr outputPtr = IntPtr.Zero;
+            int flushFrames = r8b_process(_srcState, flushInputPtr, 0, ref outputPtr);
+            Logger.Log($"R8brainResampler.FlushRemaining: r8b_process(0) returned {flushFrames} frames");
+
+            if (flushFrames > 0 && outputPtr != IntPtr.Zero)
+            {
+                int totalOutputSamples = flushFrames * _outputFormat.Channels;
+                if (_outputDoubleBuffer == null || _outputDoubleBuffer.Length < totalOutputSamples)
+                    _outputDoubleBuffer = new double[totalOutputSamples];
+
+                Marshal.Copy(outputPtr, _outputDoubleBuffer, 0, totalOutputSamples);
+
+                int outputBytes = flushFrames * _outputBytesPerFrame;
+                if (_pcmOutputBuffer == null || _pcmOutputBuffer.Length < outputBytes)
+                    _pcmOutputBuffer = new byte[outputBytes];
+
+                DoubleToPcm(_outputDoubleBuffer, _pcmOutputBuffer, flushFrames);
+
+                int bytesToCopy = Math.Min(outputBytes, maxCount - totalWritten);
+                Array.Copy(_pcmOutputBuffer, 0, buffer, offset + totalWritten, bytesToCopy);
+                totalWritten += bytesToCopy;
+                Logger.Log($"R8brainResampler.FlushRemaining: flushed {bytesToCopy} more bytes from r8brain");
+            }
+        }
+        finally
+        {
+            flushHandle.Free();
+        }
+
+        Logger.Log($"R8brainResampler.FlushRemaining: total flushed = {totalWritten} bytes");
+        return totalWritten;
     }
 
     /// <summary>
     /// Convert PCM byte data to double samples (interleaved).
     /// </summary>
-    private void PcmToDouble(byte[] pcmData, int pcmOffset, double[] doubleBuffer, int sampleCount)
+    /// <param name="pcmData">Source PCM byte buffer.</param>
+    /// <param name="pcmOffset">Offset in pcmData to start reading from.</param>
+    /// <param name="doubleBuffer">Destination double buffer (must be at least frameCount * channels in size).</param>
+    /// <param name="frameCount">Number of audio frames (samples per channel) to convert.</param>
+    private void PcmToDouble(byte[] pcmData, int pcmOffset, double[] doubleBuffer, int frameCount)
     {
         int bitsPerSample = _sourceProvider.WaveFormat.BitsPerSample;
         int channels = _sourceChannels;
         int bytesPerSample = bitsPerSample / 8;
+        int totalSamples = frameCount * channels;
 
-        for (int i = 0; i < sampleCount * channels; i++)
+        for (int i = 0; i < totalSamples; i++)
         {
             int byteOffset = pcmOffset + i * bytesPerSample;
             if (byteOffset + bytesPerSample > pcmData.Length)
@@ -364,13 +534,13 @@ internal class R8brainResampler : IWaveProvider, IDisposable
     /// Convert double samples back to PCM byte data (interleaved).
     /// Output format matches _outputFormat.
     /// </summary>
-    private void DoubleToPcm(double[] doubleBuffer, byte[] pcmBuffer, int sampleCount)
+    private void DoubleToPcm(double[] doubleBuffer, byte[] pcmBuffer, int frameCount)
     {
         int bitsPerSample = _outputFormat.BitsPerSample;
         int channels = _outputFormat.Channels;
         int bytesPerSample = bitsPerSample / 8;
 
-        for (int i = 0; i < sampleCount * channels; i++)
+        for (int i = 0; i < frameCount * channels; i++)
         {
             int byteOffset = i * bytesPerSample;
             if (byteOffset + bytesPerSample > pcmBuffer.Length)
@@ -459,19 +629,22 @@ internal class R8brainResampler : IWaveProvider, IDisposable
     /// <summary>
     /// Process input samples through the resampler.
     /// r8b_process(state, ip0, l, op0) -> int
+    /// IMPORTANT: In r8bsrc.h on Windows x64, 'long' is 4 bytes (LLP64 model).
+    /// In C#, 'long' is always 8 bytes. Using 'long' would cause stack misalignment,
+    /// corrupting the output pointer parameter. Must use 'int' (4 bytes).
     /// Note: op0 is passed by reference (double*& in C++), so we use 'ref IntPtr'.
     /// The output pointer may point to the input buffer or an internal buffer.
     /// </summary>
     /// <param name="state">Resampler state from r8b_create.</param>
     /// <param name="input">Pointer to input samples as doubles (interleaved).</param>
-    /// <param name="inputSampleCount">Number of input samples (per channel).</param>
+    /// <param name="inputSampleCount">Number of input samples PER CHANNEL (int, 4 bytes on x64 LLP64).</param>
     /// <param name="output">Reference to output pointer for resampled data.</param>
     /// <returns>Number of output samples (per channel) produced.</returns>
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "r8b_process")]
     private static extern int r8b_process(
         IntPtr state,
         IntPtr input,
-        int inputSampleCount,
+        int inputSampleCount,  // CRITICAL: 'int' not 'long' — Windows x64 LLP64 uses 4-byte long
         ref IntPtr output);
 
     /// <summary>

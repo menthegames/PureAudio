@@ -349,6 +349,7 @@ public class AudioService : IDisposable
     private IWavePlayer? _outputDevice;
     private AudioFileReader? _audioFileReader;
     private BitPerfectWaveProvider? _bitPerfectProvider;
+    private R8brainResampler? _resampler; // Track the resampler for proper disposal
     private readonly PlaylistService _playlistService;
     private readonly FftService _fftService;
     private readonly DeviceCapabilities _deviceCaps;
@@ -396,6 +397,23 @@ public class AudioService : IDisposable
     {
         get
         {
+            if (_bitPerfectMode && _resampler != null)
+            {
+                // When resampler is active, the output sample rate differs from source.
+                // Position must be calculated from the resampler's perspective:
+                // The source provider tracks position at original rate, but we need
+                // to scale by the resampling ratio to get actual playback position.
+                if (_bitPerfectProvider != null)
+                {
+                    var sourcePos = _bitPerfectProvider.CurrentTime;
+                    double ratio = (double)_resampler.WaveFormat.SampleRate / _bitPerfectProvider.WaveFormat.SampleRate;
+                    // When resampling down (e.g., 96000 -> 44100), ratio < 1.0.
+                    // The resampler produces outputFrames = inputFrames * ratio.
+                    // So output position = sourcePos * ratio (NOT sourcePos / ratio).
+                    return TimeSpan.FromTicks((long)(sourcePos.Ticks * ratio));
+                }
+                return TimeSpan.Zero;
+            }
             if (_bitPerfectMode && _bitPerfectProvider != null)
                 return _bitPerfectProvider.CurrentTime;
             return _audioFileReader?.CurrentTime ?? TimeSpan.Zero;
@@ -406,21 +424,29 @@ public class AudioService : IDisposable
     {
         get
         {
+            // Duration is always the source track duration — resampling doesn't change
+            // how long the track is, it just changes the sample rate conversion.
+            // The resampler produces outputFrames = inputFrames * ratio, but the
+            // playback time is still inputFrames / inputSampleRate = outputFrames / outputSampleRate.
             if (_bitPerfectMode && _bitPerfectProvider != null)
                 return _bitPerfectProvider.TotalTime;
             return _audioFileReader?.TotalTime ?? TimeSpan.Zero;
         }
     }
 
+
     public int Bitrate => _playlistService.CurrentItem?.AudioFile.Bitrate ?? 0;
 
     /// <summary>
     /// Current sample rate of the playing track (0 if not playing).
+    /// When resampler is active, returns the OUTPUT sample rate (what the DAC actually receives).
     /// </summary>
     public int CurrentSampleRate
     {
         get
         {
+            if (_bitPerfectMode && _resampler != null)
+                return _resampler.WaveFormat.SampleRate;
             if (_bitPerfectMode && _bitPerfectProvider != null)
                 return _bitPerfectProvider.WaveFormat.SampleRate;
             return _audioFileReader?.WaveFormat.SampleRate ?? 0;
@@ -429,16 +455,20 @@ public class AudioService : IDisposable
 
     /// <summary>
     /// Current bit depth of the playing track (0 if not playing).
+    /// When resampler is active, returns the OUTPUT bit depth (what the DAC actually receives).
     /// </summary>
     public int CurrentBitDepth
     {
         get
         {
+            if (_bitPerfectMode && _resampler != null)
+                return _resampler.WaveFormat.BitsPerSample;
             if (_bitPerfectMode && _bitPerfectProvider != null)
                 return _bitPerfectProvider.WaveFormat.BitsPerSample;
             return _audioFileReader?.WaveFormat.BitsPerSample ?? 0;
         }
     }
+
 
     public void SetVolume(float volume)
     {
@@ -586,7 +616,8 @@ public class AudioService : IDisposable
                         {
                             if (R8brainResampler.IsDllAvailable())
                             {
-                                outputProvider = new R8brainResampler(_bitPerfectProvider, bestFormat!);
+                                _resampler = new R8brainResampler(_bitPerfectProvider, bestFormat!);
+                                outputProvider = _resampler;
                             }
                             else
                             {
@@ -597,6 +628,7 @@ public class AudioService : IDisposable
                         catch (Exception resampleEx)
                         {
                             Logger.Log($"PlayInternal (Bit Perfect): R8brainResampler failed: {resampleEx.Message}, falling back to Shared");
+                            _resampler = null;
                             bpStatus = BitPerfectStatus.Off;
                         }
                     }
@@ -776,6 +808,12 @@ public class AudioService : IDisposable
                 _outputDevice.Dispose();
                 _outputDevice = null;
                 
+                if (_resampler != null)
+                {
+                    _resampler.Dispose();
+                    _resampler = null;
+                }
+
                 if (_bitPerfectProvider != null)
                 {
                     _bitPerfectProvider.Dispose();
@@ -850,6 +888,12 @@ public class AudioService : IDisposable
             _audioFileReader = null;
         }
 
+        if (_resampler != null)
+        {
+            _resampler.Dispose();
+            _resampler = null;
+        }
+
         if (_bitPerfectProvider != null)
         {
             _bitPerfectProvider.Dispose();
@@ -881,6 +925,36 @@ public class AudioService : IDisposable
         {
             var newPosition = TimeSpan.FromTicks((long)(_bitPerfectProvider.TotalTime.Ticks * fraction));
             _bitPerfectProvider.Seek(newPosition);
+            
+            // If resampler is active, we need to recreate it because the internal
+            // accumulation buffer now contains stale data from the old position.
+            if (_resampler != null)
+            {
+                var bestFormat = _deviceCaps.GetBestSupportedFormat(
+                    _bitPerfectProvider.WaveFormat.SampleRate,
+                    _bitPerfectProvider.WaveFormat.BitsPerSample,
+                    _bitPerfectProvider.WaveFormat.Channels);
+                
+                if (bestFormat != null)
+                {
+                    _resampler.Dispose();
+                    _resampler = new R8brainResampler(_bitPerfectProvider, bestFormat);
+                    
+                    // Re-init the output device with the new resampler
+                    if (_outputDevice != null)
+                    {
+                        _outputDevice.PlaybackStopped -= OnPlaybackStopped;
+                        _outputDevice.Stop();
+                        _outputDevice.Dispose();
+                    }
+                    
+                    _outputDevice = CreateWasapiOutput();
+                    _outputDevice.PlaybackStopped += OnPlaybackStopped;
+                    _outputDevice.Init(_resampler);
+                    _outputDevice.Play();
+                }
+            }
+            
             PositionChanged?.Invoke(newPosition);
         }
         else if (_audioFileReader != null)
@@ -890,6 +964,7 @@ public class AudioService : IDisposable
             PositionChanged?.Invoke(newPosition);
         }
     }
+
 
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e)
     {
@@ -926,14 +1001,13 @@ public class AudioService : IDisposable
             {
                 await Task.Delay(250, token);
 
-                if (_bitPerfectMode && _bitPerfectProvider != null)
-                    PositionChanged?.Invoke(_bitPerfectProvider.CurrentTime);
-                else if (_audioFileReader != null)
-                    PositionChanged?.Invoke(_audioFileReader.CurrentTime);
+                // Use CurrentPosition property which handles resampler scaling
+                PositionChanged?.Invoke(CurrentPosition);
             }
         }
         catch (TaskCanceledException) { }
     }
+
 
     public void Dispose()
     {
