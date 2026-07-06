@@ -1,40 +1,67 @@
 import struct
 
 with open('libs/r8bsrc.dll', 'rb') as f:
-    d = f.read()
-
-pe = struct.unpack('<I', d[0x3C:0x40])[0]
-print('PE offset:', hex(pe))
-
-num_sec = struct.unpack('<H', d[pe+6:pe+8])[0]
-print('Sections:', num_sec)
-
-opt_size = struct.unpack('<H', d[pe+20:pe+22])[0]
-print('Optional header size:', opt_size)
-
-dd_offset = pe + 24 + opt_size
-print('Data dirs at:', hex(dd_offset))
-
-exp_rva = struct.unpack('<I', d[dd_offset:dd_offset+4])[0]
-exp_size = struct.unpack('<I', d[dd_offset+4:dd_offset+8])[0]
-print('Export RVA:', hex(exp_rva), 'Size:', hex(exp_size))
-
-# Print all data directories
-for i in range(16):
-    rva = struct.unpack('<I', d[dd_offset+i*8:dd_offset+i*8+4])[0]
-    sz = struct.unpack('<I', d[dd_offset+i*8+4:dd_offset+i*8+8])[0]
-    names = ['EXPORT', 'IMPORT', 'RESOURCE', 'EXCEPTION', 'SECURITY', 'BASERELOC', 'DEBUG', 'ARCHITECTURE', 'GLOBALPTR', 'TLS', 'LOAD_CONFIG', 'BOUND_IMPORT', 'IAT', 'DELAY_IMPORT', 'COM_DESCRIPTOR', 'UNUSED']
-    if rva != 0:
-        print(f'  [{i}] {names[i]}: RVA={hex(rva)}, Size={hex(sz)}')
-
-# Print sections
-sec_offset = pe + 24 + opt_size + 16 + 8
-print('\nSections:')
-for i in range(num_sec):
-    sec = d[sec_offset + i*40:sec_offset + (i+1)*40]
-    name = sec[:8].rstrip(b'\x00').decode('ascii', errors='ignore')
-    va = struct.unpack('<I', sec[12:16])[0]
-    vs = struct.unpack('<I', sec[8:12])[0]
-    rs = struct.unpack('<I', sec[16:20])[0]
-    ro = struct.unpack('<I', sec[20:24])[0]
-    print(f'  {name}: VA={hex(va)}, VirtSize={hex(vs)}, RawSize={hex(rs)}, RawOff={hex(ro)}')
+    # DOS header
+    f.seek(0x3C)
+    pe_offset = struct.unpack('<I', f.read(4))[0]
+    
+    # PE header
+    f.seek(pe_offset + 4)
+    machine = struct.unpack('<H', f.read(2))[0]
+    num_sections = struct.unpack('<H', f.read(2))[0]
+    
+    archs = {0x8664: 'x64', 0x14c: 'x86', 0xaa64: 'ARM64', 0x1c0: 'ARMv7'}
+    print(f'Architecture: {archs.get(machine, "unknown")} (0x{machine:04X})')
+    
+    # Optional header
+    f.seek(pe_offset + 20)
+    opt_header_size = struct.unpack('<H', f.read(2))[0]
+    
+    # Section headers
+    f.seek(pe_offset + 24 + opt_header_size)
+    
+    sections = []
+    for i in range(num_sections):
+        name = f.read(8).decode('ascii', errors='ignore').rstrip('\x00')
+        virtual_size = struct.unpack('<I', f.read(4))[0]
+        virtual_addr = struct.unpack('<I', f.read(4))[0]
+        raw_size = struct.unpack('<I', f.read(4))[0]
+        raw_addr = struct.unpack('<I', f.read(4))[0]
+        f.read(16)
+        sections.append((name, virtual_size, virtual_addr, raw_size, raw_addr))
+    
+    # Find .edata
+    for name, vs, va, rs, ra in sections:
+        if name == '.edata':
+            f.seek(ra)
+            f.read(8)  # flags + timestamp
+            f.read(4)  # version
+            name_rva = struct.unpack('<I', f.read(4))[0]
+            ordinal_base = struct.unpack('<I', f.read(4))[0]
+            num_functions = struct.unpack('<I', f.read(4))[0]
+            num_names = struct.unpack('<I', f.read(4))[0]
+            addr_functions_rva = struct.unpack('<I', f.read(4))[0]
+            addr_names_rva = struct.unpack('<I', f.read(4))[0]
+            addr_ordinals_rva = struct.unpack('<I', f.read(4))[0]
+            
+            print(f'Exports: {num_functions} functions, {num_names} named')
+            
+            # Read names
+            names_offset = addr_names_rva - va + ra
+            f.seek(names_offset)
+            for j in range(num_names):
+                name_rva = struct.unpack('<I', f.read(4))[0]
+                name_offset = name_rva - va + ra
+                old_pos = f.tell()
+                f.seek(name_offset)
+                name_bytes = b''
+                while True:
+                    b = f.read(1)
+                    if b == b'\x00' or not b:
+                        break
+                    name_bytes += b
+                f.seek(old_pos)
+                print(f'  [{j}] {name_bytes.decode("ascii", errors="ignore")}')
+            break
+    else:
+        print('No .edata section found')

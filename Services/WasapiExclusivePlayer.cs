@@ -215,7 +215,9 @@ public class WasapiExclusivePlayer : IWavePlayer
     // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2: Правильная математика WASAPI и очистка COM
     private void InitializeAudioClient()
     {
-        // Используем using для автоматического освобождения COM-объектов
+        // ВАЖНО: Используем FRESH MMDeviceEnumerator для каждого вызова.
+        // Не используем _audioClient.IsFormatSupported() перед Initialize() —
+        // это может повредить состояние AudioClient и помешать Exclusive режиму.
         using var enumerator = new MMDeviceEnumerator();
         _device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
         _audioClient = _device.AudioClient;
@@ -224,6 +226,11 @@ public class WasapiExclusivePlayer : IWavePlayer
         long hnsBufferDuration = _latencyMs * 10000L;
 
         Logger.Log($"WasapiExclusivePlayer: requesting buffer={hnsBufferDuration} hns ({_latencyMs}ms)");
+
+        // ВАЖНО: НЕ вызываем IsFormatSupported() на этом AudioClient!
+        // Проверка формата через IsFormatSupported(Exclusive) может изменить
+        // внутреннее состояние AudioClient, что приведёт к сбою Initialize().
+        // Проверка формата уже выполнена в DeviceCapabilities до вызова Init().
 
         try
         {
@@ -254,6 +261,9 @@ public class WasapiExclusivePlayer : IWavePlayer
         _renderClient = _audioClient.AudioRenderClient;
 
         Logger.Log($"WasapiExclusivePlayer: AudioClient initialized. Actual buffer = {_bufferSizeFrames} frames");
+
+        // ДИАГНОСТИКА: Проверяем mix format (должен совпадать с нашим форматом в Exclusive режиме)
+        Logger.Log($"WasapiExclusivePlayer: AudioClient mix format = {_audioClient.MixFormat?.SampleRate}Hz/{_audioClient.MixFormat?.BitsPerSample}bit/{_audioClient.MixFormat?.Channels}ch");
     }
 
     private void Cleanup()

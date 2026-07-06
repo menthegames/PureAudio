@@ -165,6 +165,10 @@ public class DeviceCapabilities
     /// Finds the best supported format for a given source format.
     /// Tries the exact format first, then falls back to lower bit depths and sample rates.
     /// Returns null if no format is supported (should fall back to Shared mode).
+    /// 
+    /// IMPORTANT: This searches ALL combinations of sample rates and bit depths,
+    /// not just strictly lower ones. For example, if source is 96kHz/24bit and the DAC
+    /// supports 48kHz/24bit but not 48kHz/16bit, this will find 48kHz/24bit.
     /// </summary>
     public WaveFormat? GetBestSupportedFormat(int sourceSampleRate, int sourceBitsPerSample, int sourceChannels)
     {
@@ -174,37 +178,38 @@ public class DeviceCapabilities
             return new WaveFormat(sourceSampleRate, sourceBitsPerSample, sourceChannels);
         }
 
-        // Try same sample rate with lower bit depths
-        int[] bitDepths = { 24, 16 };
+        // Try same sample rate with any bit depth (lower or equal)
+        int[] bitDepths = { 32, 24, 16 };
         foreach (var bps in bitDepths)
         {
-            if (bps < sourceBitsPerSample && IsFormatSupported(sourceSampleRate, bps, sourceChannels))
+            if (bps != sourceBitsPerSample && IsFormatSupported(sourceSampleRate, bps, sourceChannels))
             {
                 return new WaveFormat(sourceSampleRate, bps, sourceChannels);
             }
         }
 
-        // Try lower sample rates with original bit depth
-        int[] sampleRates = { 96000, 88200, 48000, 44100 };
+        // Try all sample rates (preferring closest to source) with all bit depths
+        int[] sampleRates = { 192000, 176400, 96000, 88200, 48000, 44100 };
+        
+        // First pass: try same bit depth with lower sample rates
         foreach (var sr in sampleRates)
         {
-            if (sr < sourceSampleRate && IsFormatSupported(sr, sourceBitsPerSample, sourceChannels))
+            if (sr != sourceSampleRate && IsFormatSupported(sr, sourceBitsPerSample, sourceChannels))
             {
                 return new WaveFormat(sr, sourceBitsPerSample, sourceChannels);
             }
         }
 
-        // Try lower sample rates with lower bit depths
+        // Second pass: try all combinations of sample rates and bit depths
         foreach (var sr in sampleRates)
         {
-            if (sr < sourceSampleRate)
+            if (sr == sourceSampleRate) continue; // already tried above
+            foreach (var bps in bitDepths)
             {
-                foreach (var bps in bitDepths)
+                if (bps == sourceBitsPerSample) continue; // already tried in first pass
+                if (IsFormatSupported(sr, bps, sourceChannels))
                 {
-                    if (bps < sourceBitsPerSample && IsFormatSupported(sr, bps, sourceChannels))
-                    {
-                        return new WaveFormat(sr, bps, sourceChannels);
-                    }
+                    return new WaveFormat(sr, bps, sourceChannels);
                 }
             }
         }

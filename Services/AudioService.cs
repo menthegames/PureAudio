@@ -70,15 +70,13 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
                 Logger.Log($"BitPerfectWaveProvider: FlacReader format = {format.SampleRate}Hz/{format.BitsPerSample}bit/{format.Channels}ch, Encoding={format.Encoding}, BlockAlign={format.BlockAlign}, AverageBytesPerSecond={format.AverageBytesPerSecond}");
                 
                 // ВАЛИДАЦИЯ: Проверяем корректность формата
+                // Разрешаем любые стандартные битности (8, 16, 24, 32) и любое количество каналов (1-8)
+                // Sample rate может быть любым — FlacReader сам знает, что он декодирует
                 bool isValidFormat = (format.BitsPerSample == 8 || format.BitsPerSample == 16 || 
                                       format.BitsPerSample == 24 || format.BitsPerSample == 32) &&
-                                     (format.SampleRate == 44100 || format.SampleRate == 48000 || 
-                                      format.SampleRate == 88200 || format.SampleRate == 96000 || 
-                                      format.SampleRate == 176400 || format.SampleRate == 192000 || 
-                                      format.SampleRate == 352800 || format.SampleRate == 384000) &&
-                                     (format.Channels == 1 || format.Channels == 2);
+                                     (format.Channels >= 1 && format.Channels <= 8);
                 
-                Logger.Log($"BitPerfectWaveProvider: FLAC isValidFormat={isValidFormat}");
+                Logger.Log($"BitPerfectWaveProvider: FLAC isValidFormat={isValidFormat}, format={format.SampleRate}Hz/{format.BitsPerSample}bit/{format.Channels}ch, Encoding={format.Encoding}");
                 
                 if (!isValidFormat)
                 {
@@ -349,7 +347,7 @@ public class AudioService : IDisposable
     private IWavePlayer? _outputDevice;
     private AudioFileReader? _audioFileReader;
     private BitPerfectWaveProvider? _bitPerfectProvider;
-    private R8brainResampler? _resampler; // Track the resampler for proper disposal
+    private SoxResampler? _resampler; // Track the resampler for proper disposal
     private readonly PlaylistService _playlistService;
     private readonly FftService _fftService;
     private readonly DeviceCapabilities _deviceCaps;
@@ -399,19 +397,12 @@ public class AudioService : IDisposable
         {
             if (_bitPerfectMode && _resampler != null)
             {
-                // When resampler is active, the output sample rate differs from source.
-                // Position must be calculated from the resampler's perspective:
-                // The source provider tracks position at original rate, but we need
-                // to scale by the resampling ratio to get actual playback position.
+                // When resampler is active, _bitPerfectProvider.CurrentTime already
+                // reports the correct position based on source PCM bytes read.
+                // No ratio adjustment needed — 1 second of source = 1 second of output.
+                // The resampler changes sample rate but not playback duration.
                 if (_bitPerfectProvider != null)
-                {
-                    var sourcePos = _bitPerfectProvider.CurrentTime;
-                    double ratio = (double)_resampler.WaveFormat.SampleRate / _bitPerfectProvider.WaveFormat.SampleRate;
-                    // When resampling down (e.g., 96000 -> 44100), ratio < 1.0.
-                    // The resampler produces outputFrames = inputFrames * ratio.
-                    // So output position = sourcePos * ratio (NOT sourcePos / ratio).
-                    return TimeSpan.FromTicks((long)(sourcePos.Ticks * ratio));
-                }
+                    return _bitPerfectProvider.CurrentTime;
                 return TimeSpan.Zero;
             }
             if (_bitPerfectMode && _bitPerfectProvider != null)
@@ -439,14 +430,13 @@ public class AudioService : IDisposable
 
     /// <summary>
     /// Current sample rate of the playing track (0 if not playing).
-    /// When resampler is active, returns the OUTPUT sample rate (what the DAC actually receives).
+    /// ALWAYS returns the SOURCE format (original track format), not the output format.
+    /// The UI should show the original track format to the user.
     /// </summary>
     public int CurrentSampleRate
     {
         get
         {
-            if (_bitPerfectMode && _resampler != null)
-                return _resampler.WaveFormat.SampleRate;
             if (_bitPerfectMode && _bitPerfectProvider != null)
                 return _bitPerfectProvider.WaveFormat.SampleRate;
             return _audioFileReader?.WaveFormat.SampleRate ?? 0;
@@ -455,14 +445,13 @@ public class AudioService : IDisposable
 
     /// <summary>
     /// Current bit depth of the playing track (0 if not playing).
-    /// When resampler is active, returns the OUTPUT bit depth (what the DAC actually receives).
+    /// ALWAYS returns the SOURCE format (original track format), not the output format.
+    /// The UI should show the original track format to the user.
     /// </summary>
     public int CurrentBitDepth
     {
         get
         {
-            if (_bitPerfectMode && _resampler != null)
-                return _resampler.WaveFormat.BitsPerSample;
             if (_bitPerfectMode && _bitPerfectProvider != null)
                 return _bitPerfectProvider.WaveFormat.BitsPerSample;
             return _audioFileReader?.WaveFormat.BitsPerSample ?? 0;
@@ -521,6 +510,9 @@ public class AudioService : IDisposable
 
     /// <summary>
     /// Updates the Bit Perfect status based on current mode and track format.
+    /// Uses the SOURCE format (before resampling) to determine the true Bit Perfect status.
+    /// If resampler is active, the output format will always match the DAC, so we must
+    /// check the original source format against the DAC capabilities.
     /// </summary>
     private void UpdateBitPerfectStatus()
     {
@@ -534,9 +526,26 @@ public class AudioService : IDisposable
             return;
         }
 
-        int sr = CurrentSampleRate;
-        int bd = CurrentBitDepth;
-        int ch = _bitPerfectProvider?.WaveFormat.Channels ?? 2;
+        // IMPORTANT: Always check the SOURCE format (before resampling), not the output format.
+        // If resampler is active, the output format already matches the DAC, so checking it
+        // would always return Perfect — which is wrong.
+        int sr;
+        int bd;
+        int ch;
+
+        if (_bitPerfectProvider != null)
+        {
+            // Use the source provider's format (original track format)
+            sr = _bitPerfectProvider.WaveFormat.SampleRate;
+            bd = _bitPerfectProvider.WaveFormat.BitsPerSample;
+            ch = _bitPerfectProvider.WaveFormat.Channels;
+        }
+        else
+        {
+            sr = CurrentSampleRate;
+            bd = CurrentBitDepth;
+            ch = 2;
+        }
 
         var newStatus = _deviceCaps.GetBitPerfectStatus(sr, bd, ch);
 
@@ -544,7 +553,7 @@ public class AudioService : IDisposable
         {
             _currentBitPerfectStatus = newStatus;
             BitPerfectStatusChanged?.Invoke(newStatus);
-            Logger.Log($"BitPerfectStatus: {newStatus} (SR={sr}, BD={bd}, CH={ch})");
+            Logger.Log($"BitPerfectStatus: {newStatus} (source SR={sr}, BD={bd}, CH={ch})");
         }
     }
 
@@ -611,23 +620,16 @@ public class AudioService : IDisposable
                     {
                         Logger.Log($"PlayInternal (Bit Perfect): resampling from {sourceSr}/{sourceBd} to {bestFormat.SampleRate}/{bestFormat.BitsPerSample}");
                         
-                        // Используем R8brainResampler для качественного ресемплинга
+                        // Используем SoxResampler (NAudio WDL resampler) для качественного ресемплинга
                         try
                         {
-                            if (R8brainResampler.IsDllAvailable())
-                            {
-                                _resampler = new R8brainResampler(_bitPerfectProvider, bestFormat!);
-                                outputProvider = _resampler;
-                            }
-                            else
-                            {
-                                Logger.Log($"PlayInternal (Bit Perfect): r8bsrc.dll not available, falling back to Shared");
-                                bpStatus = BitPerfectStatus.Off;
-                            }
+                            _resampler = new SoxResampler(_bitPerfectProvider, bestFormat!);
+                            outputProvider = _resampler;
+                            Logger.Log($"PlayInternal (Bit Perfect): SoxResampler created successfully");
                         }
                         catch (Exception resampleEx)
                         {
-                            Logger.Log($"PlayInternal (Bit Perfect): R8brainResampler failed: {resampleEx.Message}, falling back to Shared");
+                            Logger.Log($"PlayInternal (Bit Perfect): SoxResampler failed: {resampleEx.Message}, falling back to Shared");
                             _resampler = null;
                             bpStatus = BitPerfectStatus.Off;
                         }
@@ -664,6 +666,8 @@ public class AudioService : IDisposable
                 else
                 {
                     // Exclusive режим с конвертацией или без
+                    Logger.Log($"PlayInternal (Bit Perfect): starting Exclusive mode, bpStatus={bpStatus}, outputProvider type={outputProvider.GetType().Name}, format={outputProvider.WaveFormat.SampleRate}Hz/{outputProvider.WaveFormat.BitsPerSample}bit/{outputProvider.WaveFormat.Channels}ch");
+                    
                     if (position > TimeSpan.Zero && position < _bitPerfectProvider.TotalTime)
                     {
                         _bitPerfectProvider.Seek(position);
@@ -681,9 +685,11 @@ public class AudioService : IDisposable
                     
                     try
                     {
+                        Logger.Log($"PlayInternal (Bit Perfect): calling _outputDevice.Init()...");
                         _outputDevice.Init(outputProvider);
                         _currentBitPerfectStatus = bpStatus;
                         BitPerfectStatusChanged?.Invoke(bpStatus);
+                        Logger.Log($"PlayInternal (Bit Perfect): Init() succeeded, device is in Exclusive mode");
                     }
                     catch (Exception ex)
                     {
@@ -945,7 +951,7 @@ public class AudioService : IDisposable
                 if (bestFormat != null)
                 {
                     _resampler.Dispose();
-                    _resampler = new R8brainResampler(_bitPerfectProvider, bestFormat);
+                    _resampler = new SoxResampler(_bitPerfectProvider, bestFormat);
                     
                     // Re-init the output device with the new resampler
                     if (_outputDevice != null)

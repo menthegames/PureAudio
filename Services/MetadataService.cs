@@ -259,34 +259,6 @@ public static class MetadataService
     }
 
     /// <summary>
-    /// Reads the actual bits-per-sample from the file header.
-    /// For WAV: reads the fmt chunk to get real bit depth.
-    /// For FLAC: reads the STREAMINFO block to get real bit depth.
-    /// For other formats: falls back to GetBitsPerSample().
-    /// </summary>
-    private static int GetRealBitsPerSample(string filePath)
-    {
-        var ext = System.IO.Path.GetExtension(filePath).ToLowerInvariant();
-        
-        try
-        {
-            switch (ext)
-            {
-                case ".wav":
-                    return GetWavBitsPerSample(filePath);
-                case ".flac":
-                    return GetFlacBitsPerSample(filePath);
-                default:
-                    return GetBitsPerSample(filePath);
-            }
-        }
-        catch
-        {
-            return GetBitsPerSample(filePath);
-        }
-    }
-
-    /// <summary>
     /// Reads the actual bit depth from a WAV file's fmt chunk.
     /// </summary>
     private static int GetWavBitsPerSample(string filePath)
