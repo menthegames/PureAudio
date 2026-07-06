@@ -32,6 +32,7 @@
   <ItemGroup>
     <PackageReference Include="BunLabs.NAudio.Flac" Version="2.0.1" />
     <PackageReference Include="NAudio" Version="2.3.0" />
+    <PackageReference Include="SoxSharp" Version="1.3.5" />
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
   </ItemGroup>
 
@@ -43,9 +44,12 @@
   <ItemGroup>
     <Compile Remove="TestR8b\**\*.cs" />
     <Content Include="TestR8b\**\*.*" />
+    <Compile Remove="InspectSox\**\*.cs" />
+    <Compile Remove="InspectNAudio\**\*.cs" />
     <Compile Remove="test_r8b.cs" />
     <Compile Remove="check_dll.py" />
     <Compile Remove="check_sections.py" />
+    <Compile Remove="check_exports.py" />
   </ItemGroup>
 
   <!-- Явно включаем иконку в выходную директорию -->
@@ -60,6 +64,7 @@
   <!-- Копируем r8bsrc.dll в выходную директорию для ресемплинга в Exclusive режиме -->
   <Target Name="CopyR8brainDll" AfterTargets="AfterBuild">
     <Copy SourceFiles="libs\r8bsrc.dll" DestinationFolder="$(OutDir)" Condition="Exists('libs\r8bsrc.dll')" />
+    <Copy SourceFiles="libs\r8bsrc.dll" DestinationFolder="$(OutDir)win-x64" Condition="Exists('libs\r8bsrc.dll') and Exists('$(OutDir)win-x64')" />
   </Target>
   
   <!-- Сплэш-изображение вшиваем в сборку как WPF Resource -->

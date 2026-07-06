@@ -115,15 +115,15 @@ internal class R8brainResampler : IWaveProvider, IDisposable
             $"{outputFormat.SampleRate}Hz/{outputFormat.BitsPerSample}bit/{outputFormat.Channels}ch, ratio={_ratio:F6}");
 
         // Initialize r8brain
-        // r8b_create(SrcSampleRate, DstSampleRate, MaxInLen, ReqLatency, nChannels, Flags)
-        // Flags: 0=low, 1=medium, 2=high, 3=very high
+        // r8b_create(SrcSampleRate, DstSampleRate, MaxInLen, ReqTransBand, Res)
+        // Res: 0=16bit, 1=16bitIR, 2=24bit (24bit is best for audiophile 24/32-bit float)
         int maxInLen = 4096; // Max input samples per channel per call
-        double reqLatency = 0.0; // Auto/minimal latency
-        int flags = 3; // Very high quality (best for audiophile)
+        double reqTransBand = 2.0; // Transition band in percent (2.0 = good default)
+        int res = (int)R8BResamplerRes.R8BRR24; // 24-bit precision (supports 32-bit float)
 
         Logger.Log($"R8brainResampler: calling r8b_create(srcRate={sourceFormat.SampleRate}, " +
-            $"dstRate={outputFormat.SampleRate}, maxInLen={maxInLen}, reqLatency={reqLatency}, " +
-            $"channels={sourceFormat.Channels}, flags={flags})");
+            $"dstRate={outputFormat.SampleRate}, maxInLen={maxInLen}, reqTransBand={reqTransBand}, " +
+            $"res={res})");
 
         // Try calling r8b_create in a separate thread with timeout to detect hangs
         IntPtr state = IntPtr.Zero;
@@ -139,9 +139,8 @@ internal class R8brainResampler : IWaveProvider, IDisposable
                     (double)sourceFormat.SampleRate,
                     (double)outputFormat.SampleRate,
                     maxInLen,
-                    reqLatency,
-                    sourceFormat.Channels,
-                    flags);
+                    reqTransBand,
+                    res);
                 Logger.Log($"R8brainResampler: r8b_create returned IntPtr=0x{state.ToInt64():X}");
             }
             catch (Exception ex)
@@ -248,7 +247,8 @@ internal class R8brainResampler : IWaveProvider, IDisposable
             try
             {
                 IntPtr inputPtr = inputHandle.AddrOfPinnedObject();
-                int outputSamples = r8b_process(_srcState, inputPtr, sampleCount, out IntPtr outputPtr);
+                IntPtr outputPtr = IntPtr.Zero;
+                int outputSamples = r8b_process(_srcState, inputPtr, sampleCount, ref outputPtr);
 
                 if (outputSamples > 0 && outputPtr != IntPtr.Zero)
                 {
@@ -425,41 +425,54 @@ internal class R8brainResampler : IWaveProvider, IDisposable
     private const string DllName = "r8bsrc.dll";
 
     /// <summary>
-    /// Create the r8brain resampler.
-    /// r8b_create(SrcSampleRate, DstSampleRate, MaxInLen, ReqLatency, nChannels, Flags) -> void*
+    /// Resampler resolution enum (ER8BResamplerRes from r8bsrc.h).
     /// </summary>
-    /// <param name="srcSampleRate">Source sample rate in Hz (double).</param>
-    /// <param name="dstSampleRate">Destination sample rate in Hz (double).</param>
-    /// <param name="maxInLen">Maximum input length in samples per channel.</param>
-    /// <param name="reqLatency">Required latency in seconds (0 = auto/minimal).</param>
-    /// <param name="nChannels">Number of channels (1 or 2).</param>
-    /// <param name="flags">Quality flags: 0=low, 1=medium, 2=high, 3=very high.</param>
+    private enum R8BResamplerRes
+    {
+        /// <summary>16-bit precision resampler.</summary>
+        R8BRR16 = 0,
+        /// <summary>16-bit precision resampler for impulse responses.</summary>
+        R8BRR16IR = 1,
+        /// <summary>24-bit precision resampler (including 32-bit floating point).</summary>
+        R8BRR24 = 2
+    }
+
+    /// <summary>
+    /// Create the r8brain resampler.
+    /// r8b_create(SrcSampleRate, DstSampleRate, MaxInLen, ReqTransBand, Res) -> void*
+    /// </summary>
+    /// <param name="srcSampleRate">Source signal sample rate (double).</param>
+    /// <param name="dstSampleRate">Destination signal sample rate (double).</param>
+    /// <param name="maxInLen">Maximum planned input length in samples (per channel).</param>
+    /// <param name="reqTransBand">Required transition band in percent of spectral space (2.0 = good default).</param>
+    /// <param name="res">Resampler resolution (0=16bit, 1=16bitIR, 2=24bit).</param>
     /// <returns>Pointer to resampler state, or IntPtr.Zero on failure.</returns>
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "r8b_create")]
     private static extern IntPtr r8b_create(
         double srcSampleRate,
         double dstSampleRate,
         int maxInLen,
-        double reqLatency,
-        int nChannels,
-        int flags);
+        double reqTransBand,
+        int res);
 
 
     /// <summary>
     /// Process input samples through the resampler.
-    /// r8b_process(state, input, inputSampleCount, out output) -> int
+    /// r8b_process(state, ip0, l, op0) -> int
+    /// Note: op0 is passed by reference (double*& in C++), so we use 'ref IntPtr'.
+    /// The output pointer may point to the input buffer or an internal buffer.
     /// </summary>
     /// <param name="state">Resampler state from r8b_create.</param>
     /// <param name="input">Pointer to input samples as doubles (interleaved).</param>
     /// <param name="inputSampleCount">Number of input samples (per channel).</param>
-    /// <param name="output">Output pointer for resampled data.</param>
+    /// <param name="output">Reference to output pointer for resampled data.</param>
     /// <returns>Number of output samples (per channel) produced.</returns>
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "r8b_process")]
     private static extern int r8b_process(
         IntPtr state,
         IntPtr input,
         int inputSampleCount,
-        out IntPtr output);
+        ref IntPtr output);
 
     /// <summary>
     /// Clear/flush the resampler internal state.
