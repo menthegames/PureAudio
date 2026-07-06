@@ -667,6 +667,13 @@ public class AudioService : IDisposable
                     if (position > TimeSpan.Zero && position < _bitPerfectProvider.TotalTime)
                     {
                         _bitPerfectProvider.Seek(position);
+                        
+                        // Clear resampler internal buffers after seek to prevent stale data
+                        if (_resampler != null)
+                        {
+                            _resampler.Clear();
+                            Logger.Log("PlayInternal (Bit Perfect): cleared resampler after seek");
+                        }
                     }
                     
                     _outputDevice = CreateWasapiOutput();
