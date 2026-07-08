@@ -162,62 +162,15 @@
                                    FontSize="12"
                                    Margin="0,4,0,0" />
 
-                        <!-- Status Indicators — gold when active, muted when inactive -->
-                        <WrapPanel Margin="0,6,0,0">
-                            <Border Background="{DynamicResource SurfaceBrush}"
-                                    BorderBrush="Transparent"
-                                    BorderThickness="0"
-                                    CornerRadius="4"
-                                    Padding="6,3"
-                                    Margin="0,0,6,0">
-                                <TextBlock Text="{Binding BitPerfectButtonText}"
-                                           FontSize="10"
-                                           FontWeight="Medium">
-                                    <TextBlock.Foreground>
-                                        <SolidColorBrush Color="{Binding BitPerfectIndicatorColor}" />
-                                    </TextBlock.Foreground>
-                                </TextBlock>
-                            </Border>
-                            <!-- Bit Perfect Status Indicator (Perfect/Limited/Off) -->
-                            <Border Background="{DynamicResource SurfaceBrush}"
-                                    BorderBrush="Transparent"
-                                    BorderThickness="0"
-                                    CornerRadius="4"
-                                    Padding="6,3"
-                                    Margin="0,0,6,0"
-                                    ToolTip="{Binding BitPerfectStatusText}">
-                                <TextBlock Text="{Binding BitPerfectStatusText}"
-                                           FontSize="10"
-                                           FontWeight="Medium">
-                                    <TextBlock.Foreground>
-                                        <SolidColorBrush Color="{Binding BitPerfectStatusColor}" />
-                                    </TextBlock.Foreground>
-                                </TextBlock>
-                            </Border>
-                            <!-- Device capabilities indicator -->
-                            <Border Background="{DynamicResource SurfaceBrush}"
-                                    BorderBrush="Transparent"
-                                    BorderThickness="0"
-                                    CornerRadius="4"
-                                    Padding="6,3"
-                                    Margin="0,0,6,0"
-                                    ToolTip="{Binding DeviceNameText}">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding DeviceMaxBitDepthText}"
-                                               FontSize="10"
-                                               FontWeight="Medium"
-                                               Foreground="#777777" />
-                                    <TextBlock Text=" / "
-                                               FontSize="10"
-                                               FontWeight="Medium"
-                                               Foreground="#555555" />
-                                    <TextBlock Text="{Binding DeviceMaxSampleRateText}"
-                                               FontSize="10"
-                                               FontWeight="Medium"
-                                               Foreground="#777777" />
-                                </StackPanel>
-                            </Border>
-                        </WrapPanel>
+                        <!-- Large Status Label (BIT PERFECT / HI-Q SRC / STANDARD MODE) -->
+                        <TextBlock Text="{Binding StatusLabelText}"
+                                   FontSize="18"
+                                   FontWeight="Bold"
+                                   Margin="0,6,0,0">
+                            <TextBlock.Foreground>
+                                <SolidColorBrush Color="{Binding StatusLabelColor}" />
+                            </TextBlock.Foreground>
+                        </TextBlock>
 
                         <!-- Play/Pause/Stop Indicators -->
                         <WrapPanel Margin="0,5,0,0">
@@ -259,37 +212,6 @@
                                            FontWeight="Bold">
                                     <TextBlock.Foreground>
                                         <SolidColorBrush Color="{Binding StopIndicatorColor}" />
-                                    </TextBlock.Foreground>
-                                </TextBlock>
-                            </Border>
-                        </WrapPanel>
-
-                        <!-- Hires/MP3 Indicators -->
-                        <WrapPanel Margin="0,5,0,0">
-                            <Border Background="{DynamicResource SurfaceBrush}"
-                                    BorderBrush="Transparent"
-                                    BorderThickness="0"
-                                    CornerRadius="4"
-                                    Padding="6,3"
-                                    Margin="0,0,6,0">
-                                <TextBlock Text="Hires"
-                                           FontSize="10"
-                                           FontWeight="Medium">
-                                    <TextBlock.Foreground>
-                                        <SolidColorBrush Color="{Binding HiresIndicatorColor}" />
-                                    </TextBlock.Foreground>
-                                </TextBlock>
-                            </Border>
-                            <Border Background="{DynamicResource SurfaceBrush}"
-                                    BorderBrush="Transparent"
-                                    BorderThickness="0"
-                                    CornerRadius="4"
-                                    Padding="6,3">
-                                <TextBlock Text="MP3"
-                                           FontSize="10"
-                                           FontWeight="Medium">
-                                    <TextBlock.Foreground>
-                                        <SolidColorBrush Color="{Binding Mp3IndicatorColor}" />
                                     </TextBlock.Foreground>
                                 </TextBlock>
                             </Border>
