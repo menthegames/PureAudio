@@ -160,7 +160,7 @@
                         <TextBlock Text="{Binding BitrateValue, StringFormat='{}{0} kbps'}"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    FontSize="12"
-                                   Margin="0,4,0,0" />
+                                   Margin="0,12,0,0" />
 
                         <!-- Large Status Label (BIT PERFECT / HI-Q SRC / STANDARD MODE) — mini-display style -->
                         <Border Background="#1B1B1B"
@@ -169,7 +169,7 @@
                                 CornerRadius="4"
                                 Width="170"
                                 Height="28"
-                                Margin="0,6,0,0"
+                                Margin="0,12,0,0"
                                 HorizontalAlignment="Left">
                             <TextBlock Text="{Binding StatusLabelText}"
                                        FontSize="16"
@@ -183,7 +183,7 @@
                         </Border>
 
                         <!-- Play/Pause/Stop Indicators -->
-                        <WrapPanel Margin="0,5,0,0">
+                        <WrapPanel Margin="0,12,0,0">
                             <Border Background="{DynamicResource SurfaceBrush}"
                                     BorderBrush="Transparent"
                                     BorderThickness="0"
