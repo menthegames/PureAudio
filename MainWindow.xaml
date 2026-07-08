@@ -46,13 +46,17 @@
                     <ColumnDefinition Width="280" /> <!-- Control Panel -->
                     <ColumnDefinition Width="80" />  <!-- Window buttons -->
                 </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />   <!-- Main content -->
+                    <RowDefinition Height="Auto" /> <!-- Bottom bar: Progress + Volume -->
+                </Grid.RowDefinitions>
+
+                <!-- ════════════════════════════════════════════════════════
+                     ROW 0 — Main Content: Display Area (left) + Controls (right)
+                     ════════════════════════════════════════════════════════ -->
 
                 <!-- ── Left Side: Display Area ── -->
-                <Grid Grid.Column="0" Margin="10,5,5,5">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
+                <Grid Grid.Row="0" Grid.Column="0" Margin="10,5,5,5">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="180" /> <!-- Cover Art -->
                         <ColumnDefinition Width="*" />   <!-- Info -->
@@ -60,7 +64,7 @@
                     </Grid.ColumnDefinitions>
 
                     <!-- ── Cover Art ── -->
-                    <Border Grid.Row="0" Grid.Column="0"
+                    <Border Grid.Column="0"
                             Width="180" Height="180"
                             BorderBrush="{DynamicResource BorderBrush}"
                             BorderThickness="1"
@@ -110,7 +114,7 @@
                     </Border>
 
                     <!-- ── Track Info (Marquee) ── -->
-                    <TextBlock Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
+                    <TextBlock Grid.Column="1" Grid.ColumnSpan="2"
                                Text="{Binding MarqueeDisplayText}"
                                Foreground="{DynamicResource TextBrush}"
                                FontSize="13"
@@ -122,7 +126,7 @@
                                VerticalAlignment="Top" />
 
                     <!-- ── Info Area (right of cover) ── -->
-                    <StackPanel Grid.Row="0" Grid.Column="1"
+                    <StackPanel Grid.Column="1"
                                 Margin="10,0,0,0"
                                 VerticalAlignment="Center">
 
@@ -293,7 +297,7 @@
                     </StackPanel>
 
                     <!-- ── FFT Spectrum (segmented bars, gold accent) ── -->
-                    <Border Grid.Row="0" Grid.Column="2"
+                    <Border Grid.Column="2"
                             BorderBrush="{DynamicResource BorderBrush}"
                             BorderThickness="1"
                             CornerRadius="6"
@@ -303,136 +307,180 @@
                             x:Name="FftBorder">
                         <Grid x:Name="FftContainer" />
                     </Border>
-
-                    <!-- ── Progress Bar ── -->
-                    <Slider Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
-                            Value="{Binding Progress}"
-                            Minimum="0" Maximum="1"
-                            Margin="10,-4,0,0"
-                            Height="20"
-                            Thumb.DragStarted="ProgressSlider_DragStarted"
-                            Thumb.DragCompleted="ProgressSlider_DragCompleted"
-                            PreviewMouseDown="ProgressSlider_PreviewMouseDown" />
                 </Grid>
 
-                <!-- ── Right Side: Control Panel ── -->
-                <Grid Grid.Column="1"
-                      Width="240" Height="260"
+                <!-- ── Right Side: Control Panel (Row 0) ── -->
+                <!--
+                     Aligned to the FFT spectrum:
+                     - Bit Perfect buttons top edge = spectrum top edge
+                       (display area margin 5 + spectrum margin 44 = 49px from Row 0 top)
+                     - Transport buttons bottom edge = spectrum bottom edge
+                       (49 + spectrum height 130 = 179px from Row 0 top)
+                     Control panel has Margin="0,5,0,0", so internal Y = Row 0 Y - 5.
+                     Using fixed row heights that sum to 174px (179 - 5):
+                       Row 0 (top spacer): 44px
+                       Row 1 (buttons):    Auto (~30px)
+                       Row 2 (spacer):     * fills remaining
+                       Row 3 (transport):  Auto (~44px)
+                       Row 4 (bottom):     56px - Row2Height
+                     Total fixed: 44 + 30 + 44 = 118px, bottom spacer = 174 - 118 = 56px
+                     The * row absorbs any extra height so transport stays at bottom.
+                -->
+                <Grid Grid.Row="0" Grid.Column="1"
+                      Width="240"
                       HorizontalAlignment="Center"
-                      VerticalAlignment="Center">
-                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                      VerticalAlignment="Top"
+                      Height="174"
+                      Margin="0,5,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="44" />  <!-- Top spacer: aligns button top with spectrum top -->
+                        <RowDefinition Height="Auto" /> <!-- Toggles (Bit Perfect buttons) -->
+                        <RowDefinition Height="*" />    <!-- Spacer -->
+                        <RowDefinition Height="Auto" /> <!-- Transport -->
+                    </Grid.RowDefinitions>
 
-                        <!-- Row 1: Bit Perfect toggle + Bit-Perfect Indicator — left-aligned with transport controls -->
-                        <StackPanel Orientation="Horizontal"
-                                    HorizontalAlignment="Left"
-                                    Margin="3,0,0,10">
-                            <Button Width="120" Height="30"
-                                    Margin="0,0,8,0"
-                                    Content="{Binding BitPerfectButtonText}"
-                                    Command="{Binding BitPerfectCommand}"
-                                    FontSize="11"
-                                    FontWeight="Bold"
-                                    Foreground="{Binding BitPerfectButtonColor, Converter={StaticResource ColorToBrushConverter}}"
-                                    BorderBrush="{Binding BitPerfectBorderColor, Converter={StaticResource ColorToBrushConverter}}" />
-                            <Border Background="{DynamicResource SurfaceBrush}"
-                                    BorderBrush="Transparent"
-                                    BorderThickness="0"
-                                    CornerRadius="4"
-                                    Padding="8,4"
-                                    Height="30"
-                                    VerticalAlignment="Center"
-                                    ToolTip="{Binding BitPerfectInfoText}">
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding BitDepthText}"
-                                               FontSize="13"
-                                               FontWeight="SemiBold"
-                                               VerticalAlignment="Center">
-                                        <TextBlock.Foreground>
-                                            <SolidColorBrush Color="{Binding BitDepthColor}" />
-                                        </TextBlock.Foreground>
-                                    </TextBlock>
-                                    <TextBlock Text="  "
-                                               FontSize="13"
-                                               FontWeight="Medium"
-                                               VerticalAlignment="Center"
-                                               Foreground="#555555" />
-                                    <TextBlock Text="{Binding SampleRateText}"
-                                               FontSize="13"
-                                               FontWeight="SemiBold"
-                                               VerticalAlignment="Center">
-                                        <TextBlock.Foreground>
-                                            <SolidColorBrush Color="{Binding SampleRateColor}" />
-                                        </TextBlock.Foreground>
-                                    </TextBlock>
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
 
-                        <!-- Row 2: Transport Controls — asymmetric sizing -->
-                        <StackPanel Orientation="Horizontal"
-                                    HorizontalAlignment="Center"
-                                    Margin="0,0,0,10">
-                            <Button Width="52" Height="44"
-                                    Margin="0,0,6,0"
-                                    Content="◄◄"
-                                    Command="{Binding PreviousCommand}"
-                                    FontSize="13"
-                                    Style="{StaticResource GhostButtonStyle}" />
-                            <Button Width="60" Height="44"
-                                    Margin="0,0,6,0"
-                                    Style="{StaticResource AccentButtonStyle}"
-                                    Content="{Binding PlayPauseIcon}"
-                                    Command="{Binding PlayPauseCommand}"
-                                    FontSize="16" />
-                            <Button Width="52" Height="44"
-                                    Margin="0,0,6,0"
-                                    Content="■"
-                                    Command="{Binding StopCommand}"
-                                    FontSize="13"
-                                    Style="{StaticResource GhostButtonStyle}" />
-                            <Button Width="52" Height="44"
-                                    Content="►►"
-                                    Command="{Binding NextCommand}"
-                                    FontSize="13"
-                                    Style="{StaticResource GhostButtonStyle}" />
-                        </StackPanel>
 
-                        <!-- Row 3: Library mode -->
-                        <StackPanel Orientation="Horizontal"
-                                    HorizontalAlignment="Center"
-                                    Margin="0,0,0,10">
-                            <Button Width="108" Height="30"
-                                    Margin="0,0,6,0"
-                                    Content="{Binding LibraryModeText}"
-                                    Command="{Binding ToggleLibraryModeCommand}"
-                                    FontSize="11" />
-                        </StackPanel>
+                    <!-- Row 1: Bit Perfect toggle + Lossless/Compressed toggle + Bit-Perfect Indicator -->
+                    <StackPanel Grid.Row="1"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Left"
+                                Margin="3,0,0,0">
+                        <Button Width="120" Height="30"
+                                Margin="0,0,8,0"
+                                Content="{Binding BitPerfectButtonText}"
+                                Command="{Binding BitPerfectCommand}"
+                                FontSize="11"
+                                FontWeight="Bold"
+                                Foreground="{Binding BitPerfectButtonColor, Converter={StaticResource ColorToBrushConverter}}"
+                                BorderBrush="{Binding BitPerfectBorderColor, Converter={StaticResource ColorToBrushConverter}}" />
+                        <Button Width="108" Height="30"
+                                Margin="0,0,8,0"
+                                Content="{Binding LibraryModeText}"
+                                Command="{Binding ToggleLibraryModeCommand}"
+                                FontSize="11"
+                                FontWeight="Bold"
+                                Foreground="{Binding HiresIndicatorColor, Converter={StaticResource ColorToBrushConverter}}"
+                                BorderBrush="{Binding HiresIndicatorColor, Converter={StaticResource ColorToBrushConverter}}" />
+                        <Border Background="{DynamicResource SurfaceBrush}"
+                                BorderBrush="Transparent"
+                                BorderThickness="0"
+                                CornerRadius="4"
+                                Padding="8,4"
+                                Height="30"
+                                VerticalAlignment="Center"
+                                ToolTip="{Binding BitPerfectInfoText}">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding BitDepthText}"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center">
+                                    <TextBlock.Foreground>
+                                        <SolidColorBrush Color="{Binding BitDepthColor}" />
+                                    </TextBlock.Foreground>
+                                </TextBlock>
+                                <TextBlock Text="  "
+                                           FontSize="13"
+                                           FontWeight="Medium"
+                                           VerticalAlignment="Center"
+                                           Foreground="#555555" />
+                                <TextBlock Text="{Binding SampleRateText}"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center">
+                                    <TextBlock.Foreground>
+                                        <SolidColorBrush Color="{Binding SampleRateColor}" />
+                                    </TextBlock.Foreground>
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
 
-                        <!-- Row 4: Volume -->
-                        <StackPanel Orientation="Horizontal"
-                                    HorizontalAlignment="Center"
-                                    Margin="0,0,0,6">
-                            <TextBlock Text="Vol"
+                    <!-- Row 2: Source + DAC info rows (spacer area between buttons and transport) -->
+                    <StackPanel Grid.Row="2"
+                                VerticalAlignment="Center"
+                                HorizontalAlignment="Left"
+                                Margin="6,0,0,0">
+                        <!-- Source row: "Source: 24 bit / 96 kHz ●" -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="Source:"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       Foreground="#888888"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text=" "
+                                       FontSize="11"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding SourceFormatText}"
                                        FontSize="11"
                                        FontWeight="Medium"
-                                       VerticalAlignment="Center"
-                                       Margin="0,0,6,0">
-                                <TextBlock.Foreground>
-                                    <SolidColorBrush Color="{Binding VolumeTextColor}" />
-                                </TextBlock.Foreground>
-                            </TextBlock>
-                            <Slider Width="200"
-                                    Minimum="0" Maximum="1"
-                                    SmallChange="0.01" LargeChange="0.05"
-                                    Value="{Binding VolumeValue}"
-                                    IsEnabled="{Binding IsVolumeActive}" />
+                                       Foreground="#CCCCCC"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="  "
+                                       FontSize="11"
+                                       VerticalAlignment="Center" />
+                            <!-- Status indicator dot -->
+                            <Ellipse Width="8" Height="8"
+                                     VerticalAlignment="Center"
+                                     Margin="0,0,0,0">
+                                <Ellipse.Fill>
+                                    <SolidColorBrush Color="{Binding SourceIndicatorColor}" />
+                                </Ellipse.Fill>
+                            </Ellipse>
                         </StackPanel>
+                        <!-- DAC row: "DAC: 16-24 bit / 44.1-48 kHz" -->
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="DAC:"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       Foreground="#888888"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text=" "
+                                       FontSize="11"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding DacCapabilitiesText}"
+                                       FontSize="11"
+                                       FontWeight="Medium"
+                                       Foreground="#CCCCCC"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </StackPanel>
 
+                    <!-- Row 3: Transport Controls — aligned to bottom (level with FFT bottom edge) -->
+                    <StackPanel Grid.Row="3"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                Margin="0,0,0,0">
+                        <Button Width="52" Height="44"
+                                Margin="0,0,6,0"
+                                Content="◄◄"
+                                Command="{Binding PreviousCommand}"
+                                FontSize="13"
+                                Style="{StaticResource GhostButtonStyle}" />
+                        <Button Width="60" Height="44"
+                                Margin="0,0,6,0"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Content="{Binding PlayPauseIcon}"
+                                Command="{Binding PlayPauseCommand}"
+                                FontSize="16" />
+                        <Button Width="52" Height="44"
+                                Margin="0,0,6,0"
+                                Content="■"
+                                Command="{Binding StopCommand}"
+                                FontSize="13"
+                                Style="{StaticResource GhostButtonStyle}" />
+                        <Button Width="52" Height="44"
+                                Content="►►"
+                                Command="{Binding NextCommand}"
+                                FontSize="13"
+                                Style="{StaticResource GhostButtonStyle}" />
                     </StackPanel>
                 </Grid>
 
+
+
                 <!-- ── Window Control Buttons (horizontal) ── -->
-                <StackPanel Grid.Column="2"
+                <StackPanel Grid.Row="0" Grid.Column="2"
                             Orientation="Horizontal"
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top"
@@ -454,7 +502,7 @@
                             Style="{StaticResource GhostButtonStyle}" />
                 </StackPanel>
                 <!-- Help + Expand (vertical, below window buttons) -->
-                <StackPanel Grid.Column="2"
+                <StackPanel Grid.Row="0" Grid.Column="2"
                             Orientation="Vertical"
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top"
@@ -475,8 +523,46 @@
                             ToolTip="Toggle Expanded View"
                             Style="{StaticResource GhostButtonStyle}" />
                 </StackPanel>
+
+                <!-- ════════════════════════════════════════════════════════
+                     ROW 1 — Bottom Bar: Progress Bar (left) + Volume (right)
+                     ════════════════════════════════════════════════════════ -->
+
+                <!-- ── Progress Bar (left side, spans col 0) ── -->
+                <Slider Grid.Row="1" Grid.Column="0"
+                        Value="{Binding Progress}"
+                        Minimum="0" Maximum="1"
+                        Margin="10,0,10,0"
+                        Height="20"
+                        VerticalAlignment="Center"
+                        Thumb.DragStarted="ProgressSlider_DragStarted"
+                        Thumb.DragCompleted="ProgressSlider_DragCompleted"
+                        PreviewMouseDown="ProgressSlider_PreviewMouseDown" />
+
+                <!-- ── Volume (right side, col 1) ── -->
+                <StackPanel Grid.Row="1" Grid.Column="1"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Margin="0,0,0,6">
+                    <TextBlock Text="Vol"
+                               FontSize="11"
+                               FontWeight="Medium"
+                               VerticalAlignment="Center"
+                               Margin="0,0,6,0">
+                        <TextBlock.Foreground>
+                            <SolidColorBrush Color="{Binding VolumeTextColor}" />
+                        </TextBlock.Foreground>
+                    </TextBlock>
+                    <Slider Width="200"
+                            Minimum="0" Maximum="1"
+                            SmallChange="0.01" LargeChange="0.05"
+                            Value="{Binding VolumeValue}"
+                            IsEnabled="{Binding IsVolumeActive}" />
+                </StackPanel>
             </Grid>
         </Border>
+
 
         <!-- ════════════════════════════════════════════════════════════
              EXPANDED PANEL — Library + Playlist

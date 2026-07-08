@@ -252,6 +252,60 @@ public class DeviceCapabilities
     }
 
     /// <summary>
+    /// Returns a compact string describing the DAC's capabilities range,
+    /// e.g. "16-24 bit / 44.1-48 kHz".
+    /// </summary>
+    public string DacCapabilitiesText
+    {
+        get
+        {
+            EnsureProbed();
+            if (_maxBitDepth <= 0 || _maxSampleRate <= 0)
+                return "";
+
+            // Build bit depth range string
+            string bitDepthStr;
+            int[] bitDepths = { 32, 24, 16 };
+            int minBd = 32, maxBd = 0;
+            foreach (var bps in bitDepths)
+            {
+                if (IsFormatSupported(44100, bps, 2))
+                {
+                    if (bps < minBd) minBd = bps;
+                    if (bps > maxBd) maxBd = bps;
+                }
+            }
+            if (maxBd == 0)
+                bitDepthStr = $"{_maxBitDepth} bit";
+            else if (minBd == maxBd)
+                bitDepthStr = $"{minBd} bit";
+            else
+                bitDepthStr = $"{minBd}-{maxBd} bit";
+
+            // Build sample rate range string
+            int[] sampleRates = { 192000, 176400, 96000, 88200, 48000, 44100 };
+            int minSr = 192000, maxSr = 0;
+            foreach (var sr in sampleRates)
+            {
+                if (IsFormatSupported(sr, 16, 2))
+                {
+                    if (sr < minSr) minSr = sr;
+                    if (sr > maxSr) maxSr = sr;
+                }
+            }
+            string srStr;
+            if (maxSr == 0)
+                srStr = $"{_maxSampleRate / 1000.0:0.#} kHz";
+            else if (minSr == maxSr)
+                srStr = $"{minSr / 1000.0:0.#} kHz";
+            else
+                srStr = $"{minSr / 1000.0:0.#}-{maxSr / 1000.0:0.#} kHz";
+
+            return $"{bitDepthStr} / {srStr}";
+        }
+    }
+
+    /// <summary>
     /// Возвращает строку со списком всех поддерживаемых ЦАПом форматов (для диагностики).
     /// </summary>
     public string GetSupportedFormatsReport()

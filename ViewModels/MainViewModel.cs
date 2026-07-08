@@ -488,6 +488,11 @@ public class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(DeviceMaxSampleRateText));
         OnPropertyChanged(nameof(DeviceMaxBitDepthText));
         OnPropertyChanged(nameof(DeviceNameText));
+        OnPropertyChanged(nameof(SourceFormatText));
+        OnPropertyChanged(nameof(SourceIndicatorColor));
+        OnPropertyChanged(nameof(DacCapabilitiesText));
+        OnPropertyChanged(nameof(StatusLabelText));
+        OnPropertyChanged(nameof(StatusLabelColor));
     }
 
     private void OnPlayStateChanged(bool playing)
@@ -504,6 +509,11 @@ public class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(BitPerfectIndicatorColor));
         OnPropertyChanged(nameof(BitPerfectButtonColor));
         OnPropertyChanged(nameof(BitPerfectBorderColor));
+        OnPropertyChanged(nameof(SourceFormatText));
+        OnPropertyChanged(nameof(SourceIndicatorColor));
+        OnPropertyChanged(nameof(DacCapabilitiesText));
+        OnPropertyChanged(nameof(StatusLabelText));
+        OnPropertyChanged(nameof(StatusLabelColor));
     }
 
     /// <summary>
@@ -580,12 +590,14 @@ public class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(IsBitPerfectActive));
             OnPropertyChanged(nameof(BitDepthColor));
             OnPropertyChanged(nameof(SampleRateColor));
+            OnPropertyChanged(nameof(SourceFormatText));
+            OnPropertyChanged(nameof(SourceIndicatorColor));
+            OnPropertyChanged(nameof(DacCapabilitiesText));
+            OnPropertyChanged(nameof(StatusLabelText));
+            OnPropertyChanged(nameof(StatusLabelColor));
         });
     }
 
-    /// <summary>
-    /// Text description of the current Bit Perfect status.
-    /// </summary>
     /// <summary>
     /// Maximum sample rate supported by the audio device (e.g. "192 kHz").
     /// </summary>
@@ -624,6 +636,54 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// Source format text for the Source info row, e.g. "24 bit / 96 kHz".
+    /// Shows the current track's format. Empty when no track is playing.
+    /// </summary>
+    public string SourceFormatText
+    {
+        get
+        {
+            int sr = _audioService.CurrentSampleRate;
+            int bd = _audioService.CurrentBitDepth;
+            if (sr <= 0 || bd <= 0) return "";
+            double khz = sr / 1000.0;
+            string srText = khz == (int)khz ? $"{(int)khz}" : $"{khz:F1}";
+            return $"{bd} bit / {srText} kHz";
+        }
+    }
+
+    /// <summary>
+    /// Color for the Source status indicator dot.
+    /// Green (#4CAF50) for Perfect, Gold (#FFC107) for Limited, Gray (#555555) for Off.
+    /// </summary>
+    public string SourceIndicatorColor
+    {
+        get
+        {
+            if (!_bitPerfectMode || !_isPlaying)
+                return "#555555";
+
+            return _bitPerfectStatus switch
+            {
+                BitPerfectStatus.Perfect => "#4CAF50",
+                BitPerfectStatus.Limited => "#FFC107",
+                _ => "#555555"
+            };
+        }
+    }
+
+    /// <summary>
+    /// DAC capabilities text for the DAC info row, e.g. "16-24 bit / 44.1-48 kHz".
+    /// </summary>
+    public string DacCapabilitiesText
+    {
+        get
+        {
+            return _audioService.DeviceCapabilities.DacCapabilitiesText;
+        }
+    }
+
     public string BitPerfectStatusText
     {
         get
@@ -655,6 +715,46 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 BitPerfectStatus.Perfect => "#4CAF50",  // Green
                 BitPerfectStatus.Limited => "#FFC107",  // Yellow/Amber
+                _ => "#555555"
+            };
+        }
+    }
+
+    /// <summary>
+    /// Large status label text shown in the left info area.
+    /// "BIT PERFECT" when Perfect, "HI-Q SRC" when Limited, "STANDARD MODE" when Off.
+    /// </summary>
+    public string StatusLabelText
+    {
+        get
+        {
+            if (!_bitPerfectMode || !_isPlaying)
+                return "STANDARD MODE";
+
+            return _bitPerfectStatus switch
+            {
+                BitPerfectStatus.Perfect => "BIT PERFECT",
+                BitPerfectStatus.Limited => "HI-Q SRC",
+                _ => "STANDARD MODE"
+            };
+        }
+    }
+
+    /// <summary>
+    /// Color for the large status label.
+    /// Green (#4CAF50) for Perfect, Gold (#FFC107) for Limited, Gray (#555555) for Off.
+    /// </summary>
+    public string StatusLabelColor
+    {
+        get
+        {
+            if (!_bitPerfectMode || !_isPlaying)
+                return "#555555";
+
+            return _bitPerfectStatus switch
+            {
+                BitPerfectStatus.Perfect => "#4CAF50",
+                BitPerfectStatus.Limited => "#FFC107",
                 _ => "#555555"
             };
         }
