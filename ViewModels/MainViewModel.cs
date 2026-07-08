@@ -722,20 +722,20 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Large status label text shown in the left info area.
-    /// "BIT PERFECT" when Perfect, "HI-Q SRC" when Limited, "STANDARD MODE" when Off.
+    /// "Bit Perfect" when Perfect, "Hi-Q SRC" when Limited, "Standard Mode" when Off.
     /// </summary>
     public string StatusLabelText
     {
         get
         {
             if (!_bitPerfectMode || !_isPlaying)
-                return "STANDARD MODE";
+                return "Standard Mode";
 
             return _bitPerfectStatus switch
             {
-                BitPerfectStatus.Perfect => "BIT PERFECT",
-                BitPerfectStatus.Limited => "HI-Q SRC",
-                _ => "STANDARD MODE"
+                BitPerfectStatus.Perfect => "Bit Perfect",
+                BitPerfectStatus.Limited => "Hi-Q SRC",
+                _ => "Standard Mode"
             };
         }
     }

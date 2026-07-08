@@ -162,15 +162,25 @@
                                    FontSize="12"
                                    Margin="0,4,0,0" />
 
-                        <!-- Large Status Label (BIT PERFECT / HI-Q SRC / STANDARD MODE) -->
-                        <TextBlock Text="{Binding StatusLabelText}"
-                                   FontSize="18"
-                                   FontWeight="Bold"
-                                   Margin="0,6,0,0">
-                            <TextBlock.Foreground>
-                                <SolidColorBrush Color="{Binding StatusLabelColor}" />
-                            </TextBlock.Foreground>
-                        </TextBlock>
+                        <!-- Large Status Label (BIT PERFECT / HI-Q SRC / STANDARD MODE) — mini-display style -->
+                        <Border Background="#1B1B1B"
+                                BorderBrush="#3A3A3A"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Width="170"
+                                Height="28"
+                                Margin="0,6,0,0"
+                                HorizontalAlignment="Left">
+                            <TextBlock Text="{Binding StatusLabelText}"
+                                       FontSize="16"
+                                       FontWeight="Normal"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center">
+                                <TextBlock.Foreground>
+                                    <SolidColorBrush Color="{Binding StatusLabelColor}" />
+                                </TextBlock.Foreground>
+                            </TextBlock>
+                        </Border>
 
                         <!-- Play/Pause/Stop Indicators -->
                         <WrapPanel Margin="0,5,0,0">
@@ -546,7 +556,7 @@
                             Command="{Binding ExpandedPanel.RefreshLibraryCommand}" />
                     <!-- Add Source Button -->
                     <Button Content="{Binding AddSourceText}"
-                            Width="24" Height="24"
+                            Width="110" Height="24"
                             FontSize="12"
                             Margin="4,0,0,0"
                             VerticalAlignment="Center"
