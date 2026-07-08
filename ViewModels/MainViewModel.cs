@@ -540,7 +540,16 @@ public class MainViewModel : INotifyPropertyChanged
         Elapsed = position;
         if (!_isSeeking && _totalDuration.TotalSeconds > 0)
         {
-            Progress = position.TotalSeconds / _totalDuration.TotalSeconds;
+            // Во время паузы не обновляем прогресс-бар — используем сохранённое значение,
+            // чтобы избежать сброса в 0 при уничтожении аудио-объектов в Exclusive режиме
+            if (_audioService.IsPaused)
+            {
+                Progress = _audioService.PausedProgress;
+            }
+            else
+            {
+                Progress = position.TotalSeconds / _totalDuration.TotalSeconds;
+            }
         }
     }
 

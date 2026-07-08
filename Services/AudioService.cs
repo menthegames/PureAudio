@@ -358,6 +358,7 @@ public class AudioService : IDisposable
     private float _savedVolume = 0.5f;
     private CancellationTokenSource? _positionCts;
     private TimeSpan _pausePosition;
+    private double _pausedProgress;
     private int _playbackId;
     private BitPerfectStatus _currentBitPerfectStatus = BitPerfectStatus.Off;
 
@@ -383,6 +384,13 @@ public class AudioService : IDisposable
     public bool IsPaused => _isPaused;
     public bool BitPerfectMode => _bitPerfectMode;
     public float Volume => _volume;
+
+    /// <summary>
+    /// Progress value (0.0 to 1.0) saved at the moment of pause.
+    /// Used by UI to keep the progress bar stable during pause in Exclusive mode,
+    /// where audio objects are destroyed and position resets to 0.
+    /// </summary>
+    public double PausedProgress => _pausedProgress;
 
     /// <summary>
     /// Current Bit Perfect status — indicates whether the track format
@@ -801,7 +809,11 @@ public class AudioService : IDisposable
         if (_outputDevice != null && _isPlaying)
         {
             _pausePosition = CurrentPosition;
-            Logger.Log($"PAUSE: saved position = {_pausePosition.TotalSeconds:F3}s, bitPerfectMode={_bitPerfectMode}");
+            // Сохраняем прогресс для UI, чтобы прогресс-бар не сбросился в 0
+            // при уничтожении аудио-объектов в Exclusive режиме
+            double duration = Duration.TotalSeconds;
+            _pausedProgress = duration > 0 ? _pausePosition.TotalSeconds / duration : 0;
+            Logger.Log($"PAUSE: saved position = {_pausePosition.TotalSeconds:F3}s, progress = {_pausedProgress:F4}, bitPerfectMode={_bitPerfectMode}");
 
             _isPlaying = false;
             _isPaused = true;
