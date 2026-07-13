@@ -1,6 +1,3 @@
-using System.IO;
-using NAudio.Wave;
-using NAudio.CoreAudioApi;
 using PureAudio.Helpers;
 using PureAudio.Models;
 
@@ -32,19 +29,19 @@ public class AudioService : IDisposable
     /// <summary>
     /// Provides access to device capabilities for UI display.
     /// </summary>
-    public DeviceCapabilities DeviceCapabilities => _state.DeviceCapabilities;
+    public DeviceCapabilities DeviceCapabilities => _engine.DeviceCapabilities;
 
     public bool IsPlaying => _state.IsPlaying;
     public bool IsPaused => _state.IsPaused;
     public bool BitPerfectMode => _state.BitPerfectMode;
-    public float Volume => _state.Volume;
+    public float Volume => _engine.Volume;
 
     /// <summary>
     /// Progress value (0.0 to 1.0) saved at the moment of pause.
     /// Used by UI to keep the progress bar stable during pause in Exclusive mode,
     /// where audio objects are destroyed and position resets to 0.
     /// </summary>
-    public double PausedProgress => _state.PausedProgress;
+    public double PausedProgress => _engine.PausedProgress;
 
     /// <summary>
     /// Current Bit Perfect status — indicates whether the track format
@@ -75,7 +72,7 @@ public class AudioService : IDisposable
         var deviceCaps = new DeviceCapabilities();
 
         _engine = new PlaybackEngine(playlistService, fftService, _fftQueue, deviceCaps);
-        _state = new AudioStateManager(_engine);
+        _state = new AudioStateManager(_engine, deviceCaps);
 
         // Wire up events from AudioStateManager to AudioService
         _state.TrackChanged += (track, cue) => TrackChanged?.Invoke(track, cue);
@@ -93,7 +90,7 @@ public class AudioService : IDisposable
         _engine.SetVolume(volume);
     }
 
-    public float GetSavedVolume() => _state.SavedVolume;
+    public float GetSavedVolume() => _engine.SavedVolume;
 
     /// <summary>
     /// Enable or disable Bit Perfect mode.
@@ -105,10 +102,6 @@ public class AudioService : IDisposable
         if (_state.BitPerfectMode == enable)
             return;
 
-        if (enable)
-            _state.SaveVolume(_state.Volume);
-
-        _state.SetBitPerfectMode(enable);
         _engine.SetBitPerfectMode(enable);
 
         // BitPerfectModeChanged is fired by PlaybackEngine -> AudioStateManager -> AudioService
@@ -130,8 +123,6 @@ public class AudioService : IDisposable
     {
         if (_engine.IsPlaying)
         {
-            var position = _engine.CurrentPosition;
-            _state.OnPause(position);
             _engine.Pause();
         }
     }
@@ -140,14 +131,12 @@ public class AudioService : IDisposable
     {
         if (_state.IsPaused)
         {
-            _state.OnResume();
             _engine.Resume();
         }
     }
 
     public void Stop()
     {
-        _state.OnStop();
         _engine.Stop();
     }
 
@@ -168,6 +157,7 @@ public class AudioService : IDisposable
 
     public void Dispose()
     {
+        _state.Dispose();
         _engine.Dispose();
         _fftQueue.Dispose();
     }

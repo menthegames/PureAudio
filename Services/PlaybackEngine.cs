@@ -12,6 +12,7 @@ namespace PureAudio.Services;
 /// 
 /// This is the "engine room" of PureAudio — it handles all audio device interaction
 /// but has no knowledge of the UI or ViewModel state.
+/// State management is delegated to AudioStateManager.
 /// </summary>
 internal class PlaybackEngine : IDisposable
 {
@@ -33,7 +34,6 @@ internal class PlaybackEngine : IDisposable
     private double _pausedProgress;
     private int _playbackId;
     private bool _userStopRequested;
-    private BitPerfectStatus _currentBitPerfectStatus = BitPerfectStatus.Off;
 
     // CUE track support
     private CueTrack? _currentCueTrack;
@@ -49,14 +49,13 @@ internal class PlaybackEngine : IDisposable
     public event Action<bool>? BitPerfectModeChanged;
     public event Action<BitPerfectStatus>? BitPerfectStatusChanged;
 
-    // ── Properties exposed to AudioService ──
+    // ── Properties exposed to AudioStateManager ──
     public bool IsPlaying => _isPlaying;
     public bool IsPaused => _isPaused;
     public bool BitPerfectMode => _bitPerfectMode;
     public float Volume => _volume;
     public float SavedVolume => _savedVolume;
     public double PausedProgress => _pausedProgress;
-    public BitPerfectStatus CurrentBitPerfectStatus => _currentBitPerfectStatus;
     public DeviceCapabilities DeviceCapabilities => _deviceCaps;
 
     public TimeSpan CurrentPosition
@@ -163,26 +162,22 @@ internal class PlaybackEngine : IDisposable
     /// </summary>
     private void UpdateBitPerfectStatus()
     {
+        // This method is kept in PlaybackEngine because it needs access to
+        // _outputDevice, _bitPerfectProvider, _deviceCaps, etc.
+        // AudioStateManager will subscribe to BitPerfectStatusChanged event.
+
         // Защита от гонок: проверяем согласованность флагов
         bool consistent = _bitPerfectMode == (_outputDevice is WasapiExclusivePlayer);
         if (!consistent)
         {
             Logger.Log($"UpdateBitPerfectStatus: race condition detected — bitPerfectMode={_bitPerfectMode}, outputDevice is WasapiExclusivePlayer={_outputDevice is WasapiExclusivePlayer}. Forcing Off.");
-            if (_currentBitPerfectStatus != BitPerfectStatus.Off)
-            {
-                _currentBitPerfectStatus = BitPerfectStatus.Off;
-                BitPerfectStatusChanged?.Invoke(BitPerfectStatus.Off);
-            }
+            BitPerfectStatusChanged?.Invoke(BitPerfectStatus.Off);
             return;
         }
 
         if (!_bitPerfectMode || !_isPlaying)
         {
-            if (_currentBitPerfectStatus != BitPerfectStatus.Off)
-            {
-                _currentBitPerfectStatus = BitPerfectStatus.Off;
-                BitPerfectStatusChanged?.Invoke(BitPerfectStatus.Off);
-            }
+            BitPerfectStatusChanged?.Invoke(BitPerfectStatus.Off);
             return;
         }
 
@@ -204,12 +199,24 @@ internal class PlaybackEngine : IDisposable
         }
 
         var newStatus = _deviceCaps.GetBitPerfectStatus(sr, bd, ch);
+        BitPerfectStatusChanged?.Invoke(newStatus);
+        Logger.Log($"BitPerfectStatus: {newStatus} (source SR={sr}, BD={bd}, CH={ch})");
+    }
 
-        if (_currentBitPerfectStatus != newStatus)
+    /// <summary>
+    /// Обновляет статус Bit Perfect с небольшой задержкой после старта трека,
+    /// чтобы дать время на полную инициализацию аудио-устройства.
+    /// </summary>
+    public async Task DelayedBitPerfectStatusUpdate()
+    {
+        try
         {
-            _currentBitPerfectStatus = newStatus;
-            BitPerfectStatusChanged?.Invoke(newStatus);
-            Logger.Log($"BitPerfectStatus: {newStatus} (source SR={sr}, BD={bd}, CH={ch})");
+            await Task.Delay(80);
+            UpdateBitPerfectStatus();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"DelayedBitPerfectStatusUpdate: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -338,7 +345,6 @@ internal class PlaybackEngine : IDisposable
                     _outputDevice.Init(fftProvider);
 
                     // Обновляем статус на Off
-                    _currentBitPerfectStatus = BitPerfectStatus.Off;
                     BitPerfectStatusChanged?.Invoke(BitPerfectStatus.Off);
                 }
                 else
@@ -365,7 +371,6 @@ internal class PlaybackEngine : IDisposable
                     {
                         Logger.Log($"PlayInternal (Bit Perfect): calling _outputDevice.Init()...");
                         _outputDevice.Init(outputProvider);
-                        _currentBitPerfectStatus = bpStatus;
                         BitPerfectStatusChanged?.Invoke(bpStatus);
                         Logger.Log($"PlayInternal (Bit Perfect): Init() succeeded, device is in Exclusive mode");
                     }
@@ -390,7 +395,6 @@ internal class PlaybackEngine : IDisposable
                         _outputDevice.PlaybackStopped += OnPlaybackStopped;
                         _outputDevice.Init(fftProvider);
 
-                        _currentBitPerfectStatus = BitPerfectStatus.Off;
                         BitPerfectStatusChanged?.Invoke(BitPerfectStatus.Off);
                     }
                 }
@@ -477,23 +481,6 @@ internal class PlaybackEngine : IDisposable
             {
                 Logger.Log($"PlayInternal: Fallback also failed: {fallbackEx.Message}");
             }
-        }
-    }
-
-    /// <summary>
-    /// Обновляет статус Bit Perfect с небольшой задержкой после старта трека,
-    /// чтобы дать время на полную инициализацию аудио-устройства.
-    /// </summary>
-    private async Task DelayedBitPerfectStatusUpdate()
-    {
-        try
-        {
-            await Task.Delay(80);
-            UpdateBitPerfectStatus();
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"DelayedBitPerfectStatusUpdate: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
