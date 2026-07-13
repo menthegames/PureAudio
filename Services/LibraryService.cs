@@ -842,8 +842,6 @@ public class LibraryService
                 return null;
 
             var normalizedPath = Path.GetFullPath(cached.FilePath);
-            if (!_allFilePaths.Add(normalizedPath))
-                return null; // already added
 
             // Check if this is a CUE track node
             if (cached.CueTrack != null)
@@ -860,6 +858,12 @@ public class LibraryService
                     EndPosition = TimeSpan.FromSeconds(ct.EndPositionSeconds),
                     CueFilePath = ct.CueFilePath
                 };
+
+                // Use a unique key for CUE tracks to avoid collisions
+                // (multiple CUE tracks can reference the same physical audio file)
+                var cueKey = $"{normalizedPath}::cue::{ct.TrackNumber}";
+                if (!_allFilePaths.Add(cueKey))
+                    return null; // already added this CUE track
 
                 var audioFile = new AudioFile
                 {
@@ -892,10 +896,14 @@ public class LibraryService
                 return fileNode;
             }
 
-            // Regular file node
+            // Regular file node — use file path as dedup key
+            if (!_allFilePaths.Add(normalizedPath))
+                return null; // already added
+
             CachedFileEntry? entry = null;
             if (!fileLookup.TryGetValue(normalizedPath, out entry))
                 return null;
+
 
             var audioFile2 = new AudioFile
             {

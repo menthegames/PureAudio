@@ -470,9 +470,9 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private void OnTrackChanged(AudioFile track)
+    private void OnTrackChanged(AudioFile track, CueTrack? cueTrack)
     {
-        Logger.Log($"OnTrackChanged: audioService.CurrentBitDepth = {_audioService.CurrentBitDepth}, audioService.CurrentSampleRate = {_audioService.CurrentSampleRate}");
+        Logger.Log($"OnTrackChanged: audioService.CurrentBitDepth = {_audioService.CurrentBitDepth}, audioService.CurrentSampleRate = {_audioService.CurrentSampleRate}, cueTrack={cueTrack?.TrackNumber}");
         CurrentTrack = track;
         StatusText = "Playing";
         OnPropertyChanged(nameof(PlayPauseIcon));

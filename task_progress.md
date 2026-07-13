@@ -20,6 +20,10 @@
 - [x] Add PlaylistService.Add(AudioFile, CueTrack) overload for CUE track playlist items
 - [x] Fix AddFolderToPlaylist to add CUE tracks with CueTrack context (not as plain AudioFile)
 - [x] Add cache version check (bump to "1.1") to force rebuild of old caches without CUE data
+- [x] Fix OnTrackChanged signature in MainViewModel to accept CueTrack? parameter
+- [x] Fix DoubleClickLibrary in ExpandedPanelViewModel to pass CueTrack for CUE tracks
+- [x] Fix BuildTreeFromCache: use unique key for CUE tracks to avoid collisions
 - [x] Verify build succeeds with 0 errors
+
 
 

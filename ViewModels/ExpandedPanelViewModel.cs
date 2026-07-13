@@ -62,12 +62,25 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         ApplyFilter();
     }
 
-    private void OnTrackChanged(AudioFile track)
+    private void OnTrackChanged(AudioFile track, CueTrack? cueTrack)
     {
         // Find the index of the currently playing track in the playlist and select it
         for (int i = 0; i < _playlistService.Items.Count; i++)
         {
-            if (_playlistService.Items[i].AudioFile.FilePath == track.FilePath)
+            var item = _playlistService.Items[i];
+            
+            // For CUE tracks, match by both file path AND track number/start position
+            if (cueTrack != null && item.CueTrack != null)
+            {
+                if (item.CueTrack.FilePath == cueTrack.FilePath &&
+                    item.CueTrack.TrackNumber == cueTrack.TrackNumber &&
+                    item.CueTrack.StartPosition == cueTrack.StartPosition)
+                {
+                    SelectedPlaylistIndex = i;
+                    return;
+                }
+            }
+            else if (item.AudioFile.FilePath == track.FilePath && item.CueTrack == null)
             {
                 SelectedPlaylistIndex = i;
                 return;
@@ -297,6 +310,11 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
                 // Add all audio files from this folder recursively
                 AddFolderToPlaylist(node);
             }
+            else if (node.CueTrack != null && node.AudioFile != null)
+            {
+                // Add single CUE track with its CueTrack metadata
+                _playlistService.Add(node.AudioFile, node.CueTrack);
+            }
             else if (node.AudioFile != null)
             {
                 // Add single file
@@ -305,6 +323,7 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(PlaylistItems));
         }
     }
+
 
     private void AddFolderToPlaylist(LibraryNode folderNode)
     {

@@ -369,7 +369,7 @@ public class AudioService : IDisposable
     private CueTrack? _currentCueTrack;
     private bool _isCueTrack;
 
-    public event Action<AudioFile>? TrackChanged;
+    public event Action<AudioFile, CueTrack?>? TrackChanged;
     public event Action<bool>? PlayStateChanged;
     public event Action<TimeSpan>? PositionChanged;
     public event Action<TimeSpan>? DurationChanged;
@@ -807,7 +807,7 @@ public class AudioService : IDisposable
 
             _isPlaying = true;
             _isPaused = false;
-            TrackChanged?.Invoke(currentItem.AudioFile);
+            TrackChanged?.Invoke(currentItem.AudioFile, _currentCueTrack);
             DurationChanged?.Invoke(Duration);
             BitrateChanged?.Invoke(Bitrate);
             PlayStateChanged?.Invoke(true);
@@ -846,7 +846,7 @@ public class AudioService : IDisposable
                     
                     _isPlaying = true;
                     _isPaused = false;
-                    TrackChanged?.Invoke(fallbackItem.AudioFile);
+                    TrackChanged?.Invoke(fallbackItem.AudioFile, _currentCueTrack);
                     DurationChanged?.Invoke(Duration);
                     BitrateChanged?.Invoke(Bitrate);
                     PlayStateChanged?.Invoke(true);
