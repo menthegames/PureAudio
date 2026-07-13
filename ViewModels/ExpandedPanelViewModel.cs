@@ -30,6 +30,23 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
     {
         LibraryPanel = new LibraryPanelViewModel(libraryService, playlistService);
         PlaylistPanel = new PlaylistPanelViewModel(playlistService, audioService);
+
+        // Forward PropertyChanged notifications from sub-ViewModels so that
+        // XAML bindings bound to ExpandedPanel facade properties are updated.
+        LibraryPanel.PropertyChanged += OnLibraryPanelPropertyChanged;
+        PlaylistPanel.PropertyChanged += OnPlaylistPanelPropertyChanged;
+    }
+
+    private void OnLibraryPanelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // Re-raise the property change on this ExpandedPanel so XAML bindings
+        // that reference ExpandedPanel.SomeProperty get notified.
+        OnPropertyChanged(e.PropertyName);
+    }
+
+    private void OnPlaylistPanelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        OnPropertyChanged(e.PropertyName);
     }
 
     // ════════════════════════════════════════════════════════════════
