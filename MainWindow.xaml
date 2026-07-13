@@ -20,6 +20,38 @@
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BoolToVis" />
             <helpers:ColorToBrushConverter x:Key="ColorToBrushConverter" />
+
+            <!-- ── Pulse Animation for the background activity dot ── -->
+            <Storyboard x:Key="PulseAnimation" RepeatBehavior="Forever">
+                <!-- Opacity pulse: 0.3 → 1.0 → 0.3 -->
+                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                 From="0.3" To="1.0"
+                                 Duration="0:0:0.8"
+                                 AutoReverse="True" />
+                <!-- Scale pulse: 0.8 → 1.2 → 0.8 (centered) -->
+                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                 From="0.8" To="1.2"
+                                 Duration="0:0:0.8"
+                                 AutoReverse="True" />
+                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                 From="0.8" To="1.2"
+                                 Duration="0:0:0.8"
+                                 AutoReverse="True" />
+            </Storyboard>
+
+            <!-- ── Toast Fade In Animation ── -->
+            <Storyboard x:Key="ToastFadeIn">
+                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                 From="0.0" To="1.0"
+                                 Duration="0:0:0.3" />
+            </Storyboard>
+
+            <!-- ── Toast Fade Out Animation ── -->
+            <Storyboard x:Key="ToastFadeOut">
+                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                 From="1.0" To="0.0"
+                                 Duration="0:0:0.3" />
+            </Storyboard>
         </ResourceDictionary>
     </Window.Resources>
 
@@ -455,6 +487,77 @@
                             ToolTip="Toggle Expanded View"
                             Style="{StaticResource GhostButtonStyle}" />
                 </StackPanel>
+
+                <!-- ── Background Activity Indicator (pulsing dot + toast) ── -->
+                <StackPanel Grid.Row="0" Grid.Column="2"
+                            Orientation="Vertical"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Bottom"
+                            Margin="0,0,10,10">
+                    <!-- Pulsing dot — always visible; grey when idle, gold + pulsing when busy -->
+                    <Ellipse Width="10" Height="10"
+                             HorizontalAlignment="Right"
+                             Margin="0,0,0,6"
+                             x:Name="PulseDot">
+                        <Ellipse.RenderTransform>
+                            <ScaleTransform CenterX="5" CenterY="5" ScaleX="1" ScaleY="1" />
+                        </Ellipse.RenderTransform>
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Fill" Value="#555555" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                        <Setter Property="Fill" Value="#C9A84C" />
+                                        <DataTrigger.EnterActions>
+                                            <BeginStoryboard Name="PulseStoryboard">
+                                                <StaticResource ResourceKey="PulseAnimation" />
+                                            </BeginStoryboard>
+                                        </DataTrigger.EnterActions>
+                                        <DataTrigger.ExitActions>
+                                            <StopStoryboard BeginStoryboardName="PulseStoryboard" />
+                                        </DataTrigger.ExitActions>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
+                    <!-- Toast / status text — fades in/out with Opacity animation -->
+                    <Border Background="#1A1A1A"
+                            BorderBrush="#C9A84C"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="8,6"
+                            HorizontalAlignment="Right"
+                            x:Name="ToastBorder">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Opacity" Value="0" />
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsToastVisible}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <DataTrigger.EnterActions>
+                                            <BeginStoryboard Name="ToastFadeInSb">
+                                                <StaticResource ResourceKey="ToastFadeIn" />
+                                            </BeginStoryboard>
+                                        </DataTrigger.EnterActions>
+                                        <DataTrigger.ExitActions>
+                                            <BeginStoryboard Name="ToastFadeOutSb">
+                                                <StaticResource ResourceKey="ToastFadeOut" />
+                                            </BeginStoryboard>
+                                            <StopStoryboard BeginStoryboardName="ToastFadeInSb" />
+                                        </DataTrigger.ExitActions>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding BusyStatusText}"
+                                   Foreground="#C9A84C"
+                                   FontSize="11"
+                                   FontWeight="Medium" />
+                    </Border>
+                </StackPanel>
+
 
                 <!-- ════════════════════════════════════════════════════════
                      ROW 1 — Bottom Bar: Progress Bar (left) + Volume (right)

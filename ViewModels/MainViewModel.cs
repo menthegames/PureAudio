@@ -40,6 +40,11 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _isLoadingPlaylist;
     private bool _isLoadingLibrary;
     private string _loadingStatusText = "";
+    // Background activity indicator (pulsing dot + toast)
+    private bool _isBusy;
+    private string _busyStatusText = "";
+    private bool _isToastVisible;
+    private CancellationTokenSource? _toastCts;
 
     public MainViewModel(AudioService audioService, PlaylistService playlistService, 
                          LibraryService libraryService, FftService fftService,
@@ -52,6 +57,9 @@ public class MainViewModel : INotifyPropertyChanged
         _fftService = fftService;
         _settingsService = settingsService;
         ExpandedPanel = expandedPanel;
+
+        // Wire up the toast callback so ExpandedPanelViewModel can show toasts
+        expandedPanel.ShowToastCallback = ShowToast;
 
         // Load persisted settings (lightweight — just reads JSON)
         var settings = _settingsService.Current;
@@ -874,16 +882,111 @@ public class MainViewModel : INotifyPropertyChanged
     /// </summary>
     public bool IsLoading => _isLoadingPlaylist || _isLoadingLibrary;
 
+    // --- Background Activity Indicator (pulsing dot + toast) ---
+
+    /// <summary>
+    /// True when any background process is running (library scan, playlist load, etc.).
+    /// Controls visibility of the pulsing dot indicator.
+    /// </summary>
+    public bool IsBusy
+    {
+        get => _isBusy;
+        set
+        {
+            _isBusy = value;
+            OnPropertyChanged();
+            // Auto-show toast when busy starts, auto-hide when busy ends
+            if (value)
+                IsToastVisible = true;
+            else
+                IsToastVisible = false;
+        }
+    }
+
+    /// <summary>
+    /// Current status text shown in the toast (e.g. "Loading playlist...", "Scanning library...").
+    /// </summary>
+    public string BusyStatusText
+    {
+        get => _busyStatusText;
+        set { _busyStatusText = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>
+    /// Controls visibility of the toast (for show/hide animation).
+    /// The pulsing dot is bound to IsBusy, the toast text is bound to IsToastVisible
+    /// so it can fade in/out independently.
+    /// </summary>
+    public bool IsToastVisible
+    {
+        get => _isToastVisible;
+        set { _isToastVisible = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>
+    /// Show a toast notification with the given text.
+    /// Cancels any previous toast timer, so calling this repeatedly
+    /// replaces the old toast with the new one.
+    /// The toast auto-hides after <paramref name="durationMs"/> milliseconds,
+    /// but the pulsing dot (IsBusy) stays on — the caller must explicitly
+    /// set <see cref="IsBusy"/> = false when the background operation completes.
+    /// </summary>
+    public void ShowToast(string text, int durationMs = 3000)
+    {
+        // Cancel any previous auto-hide timer
+        _toastCts?.Cancel();
+        _toastCts = new CancellationTokenSource();
+        var token = _toastCts.Token;
+
+        BusyStatusText = text;
+        IsToastVisible = true;
+        IsBusy = true;
+
+        // Fire-and-forget: auto-hide the toast text after duration
+        // (the pulsing dot stays on until IsBusy is set to false explicitly)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(durationMs, token);
+                // Back on UI thread to update properties
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                {
+                    if (!token.IsCancellationRequested)
+                    {
+                        IsToastVisible = false;
+                        // Do NOT set IsBusy = false here — caller manages it
+                    }
+                });
+            }
+            catch (TaskCanceledException)
+            {
+                // Cancelled — a new toast replaced this one, do nothing
+            }
+        }, token);
+    }
+
     private void UpdateLoadingStatusText()
     {
         if (_isLoadingPlaylist && _isLoadingLibrary)
+        {
             LoadingStatusText = "Loading playlist and scanning library...";
+            ShowToast("Loading playlist and scanning library...", 5000);
+        }
         else if (_isLoadingPlaylist)
+        {
             LoadingStatusText = "Loading playlist...";
+            ShowToast("Loading playlist...", 5000);
+        }
         else if (_isLoadingLibrary)
+        {
             LoadingStatusText = "Scanning library...";
+            ShowToast("Scanning library...", 5000);
+        }
         else
+        {
             LoadingStatusText = "";
+        }
     }
 
     /// <summary>
@@ -900,6 +1003,7 @@ public class MainViewModel : INotifyPropertyChanged
         // Step 2: Load library — try cache first, fall back to full scan
         IsLoadingLibrary = true;
         LoadingStatusText = "Loading library...";
+        ShowToast("Loading library...", 5000);
         await Task.Run(() => LoadLibraryInBackground());
         IsLoadingLibrary = false;
 
@@ -908,6 +1012,7 @@ public class MainViewModel : INotifyPropertyChanged
         if (_bitPerfectMode)
         {
             LoadingStatusText = "Switching to Bit Perfect mode...";
+            ShowToast("Switching to Bit Perfect mode...", 5000);
             bool success = await TrySwitchToBitPerfectAsync();
             if (success)
             {
@@ -935,6 +1040,7 @@ public class MainViewModel : INotifyPropertyChanged
         // Clear loading status after a short delay
         await Task.Delay(2000);
         LoadingStatusText = "";
+        IsBusy = false;
     }
 
     /// <summary>

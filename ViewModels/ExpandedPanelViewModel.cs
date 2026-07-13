@@ -30,6 +30,12 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
     private System.Windows.Threading.DispatcherTimer? _searchDebounceTimer;
     private ObservableCollection<LibraryNode> _filteredLibrary = new();
 
+    /// <summary>
+    /// Callback to show a toast notification via MainViewModel.
+    /// Set by MainViewModel after construction.
+    /// </summary>
+    public Action<string, int>? ShowToastCallback { get; set; }
+
     public ExpandedPanelViewModel(LibraryService libraryService, PlaylistService playlistService, AudioService audioService)
     {
         _libraryService = libraryService;
@@ -272,6 +278,7 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         dialog.Description = "Select a folder with lossless audio files (FLAC, WAV, AIFF, DSD, etc.)";
         if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
         {
+            ShowToastCallback?.Invoke("Scanning lossless library...", 5000);
             IsScanning = true;
             _libraryService.AddHiresSource(dialog.SelectedPath);
             _libraryService.SaveCache();
@@ -287,6 +294,7 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         dialog.Description = "Select a folder with compressed audio files (MP3, AAC, OGG, etc.)";
         if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
         {
+            ShowToastCallback?.Invoke("Scanning compressed library...", 5000);
             IsScanning = true;
             _libraryService.AddMp3Source(dialog.SelectedPath);
             _libraryService.SaveCache();
@@ -493,6 +501,8 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
 
         IsRefreshing = true;
         IsScanning = true;
+
+        ShowToastCallback?.Invoke("Refreshing library...", 5000);
 
         // Process events so the UI updates before potentially long scan
         System.Windows.Forms.Application.DoEvents();

@@ -24,6 +24,5 @@
 - [x] Fix DoubleClickLibrary in ExpandedPanelViewModel to pass CueTrack for CUE tracks
 - [x] Fix BuildTreeFromCache: use unique key for CUE tracks to avoid collisions
 - [x] Verify build succeeds with 0 errors
-
-
-
+- [x] **Шаг 2:** Проверено — CUE-логика вызывается при добавлении новой папки (AddHiresSource/AddMp3Source → ScanFolderToTree → BuildTreeRecursive). Кэш инвалидируется при изменении CUE-файлов (CollectCueFilePaths + timestamp check).
+- [x] **Шаг 3:** Проверено — CueTrack сохраняются в кэш (ConvertTreeToCache → CachedCueTrack) и восстанавливаются из кэша (BuildTreeFromCache → CueTrack). Уникальный ключ для CUE-треков предотвращает коллизии.
