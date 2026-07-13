@@ -33,7 +33,7 @@ internal class FftSampleProvider : ISampleProvider
             System.Array.Copy(buffer, offset, fftBuffer, 0, samplesRead);
             
             // Feed to spectrum analyzer via thread-safe queue
-            _fftQueue.Enqueue(fftBuffer);
+            _fftQueue.Enqueue(fftBuffer, samplesRead);
         }
         
         return samplesRead;

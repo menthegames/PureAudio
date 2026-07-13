@@ -40,11 +40,6 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
     // Buffer for float conversion (for FFT)
     private float[]? _floatBuffer;
 
-    // Pre-gain for FFT input in Exclusive mode.
-    // Reduces amplitude of PCM→float conversion to prevent spectrum saturation.
-    // Adjust this value to control spectrum sensitivity (lower = less sensitive).
-    private float _fftPreGain = 0.1f;
-
     public BitPerfectWaveProvider(string filePath, FftService? fftService = null, FftQueue? fftQueue = null)
     {
         _fftService = fftService;
@@ -165,8 +160,6 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
 
     /// <summary>
     /// Converts PCM byte data to float samples and feeds them to FFT service.
-    /// Applies a pre-gain attenuation to prevent the spectrum from appearing
-    /// overly saturated in Exclusive mode (where no Windows mixer volume is applied).
     /// </summary>
     private void FeedFft(byte[] buffer, int offset, int bytesRead)
     {
@@ -228,10 +221,9 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
                     }
                     sample += chSample;
                 }
-                // Apply pre-gain attenuation and clamp
-                _floatBuffer[i] = Math.Clamp(sample / channels * _fftPreGain, -1f, 1f);
+                _floatBuffer[i] = Math.Clamp(sample / channels, -1f, 1f);
             }
-            _fftQueue.Enqueue(_floatBuffer);
+            _fftQueue.Enqueue(_floatBuffer, frames);
         }
         catch (Exception ex)
         {
@@ -1014,44 +1006,6 @@ public class AudioService : IDisposable
         {
             _bitPerfectProvider.Dispose();
             _bitPerfectProvider = null;
-        }
-    }
-
-    /// <summary>
-    /// Play a specific CUE track by its CueTrack information.
-    /// Sets the playlist to the item that contains this CUE track and starts playback
-    /// from the CUE track's start position.
-    /// </summary>
-    public void PlayCueTrack(CueTrack cueTrack)
-    {
-        Logger.Log($"PlayCueTrack: file={cueTrack.FilePath}, track={cueTrack.TrackNumber}, start={cueTrack.StartPosition}, end={cueTrack.EndPosition}");
-
-        // Find the playlist item that contains this CUE track
-        var item = _playlistService.Items.FirstOrDefault(i =>
-            i.CueTrack != null &&
-            i.CueTrack.FilePath == cueTrack.FilePath &&
-            i.CueTrack.TrackNumber == cueTrack.TrackNumber);
-
-        if (item == null)
-        {
-            Logger.Log("PlayCueTrack: CUE track not found in playlist, searching by file path");
-            // Fallback: find any item with the same audio file
-            item = _playlistService.Items.FirstOrDefault(i =>
-                i.AudioFile.FilePath == cueTrack.FilePath);
-        }
-
-        if (item != null)
-        {
-            int index = _playlistService.Items.IndexOf(item);
-            if (index >= 0)
-            {
-                _playlistService.CurrentIndex = index;
-                PlayInternal(TimeSpan.Zero);
-            }
-        }
-        else
-        {
-            Logger.Log("PlayCueTrack: no matching playlist item found");
         }
     }
 

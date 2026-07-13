@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Threading;
 using PureAudio.Helpers;
@@ -16,7 +17,7 @@ namespace PureAudio.Services;
 /// </summary>
 internal class FftQueue : IDisposable
 {
-    private readonly ConcurrentQueue<float[]> _queue = new();
+    private readonly ConcurrentQueue<(float[] array, int length)> _queue = new();
     private readonly FftService _fftService;
     private readonly CancellationTokenSource _cts = new();
     private readonly Thread _workerThread;
@@ -47,14 +48,16 @@ internal class FftQueue : IDisposable
     /// Called by audio threads to enqueue float sample data for FFT processing.
     /// This is very fast (lock-free enqueue) and does NOT block the audio thread.
     /// </summary>
-    public void Enqueue(float[] samples)
+    public void Enqueue(float[] samples, int length)
     {
         if (_disposed) return;
 
-        // Copy the samples to a new array so the caller can reuse their buffer
-        float[] copy = new float[samples.Length];
-        System.Array.Copy(samples, copy, samples.Length);
-        _queue.Enqueue(copy);
+        // Rent from ArrayPool to reduce GC pressure
+        // Note: ArrayPool.Rent may return an array larger than requested,
+        // so we store the actual length separately.
+        float[] copy = ArrayPool<float>.Shared.Rent(length);
+        System.Array.Copy(samples, copy, length);
+        _queue.Enqueue((copy, length));
     }
 
     /// <summary>
@@ -67,11 +70,18 @@ internal class FftQueue : IDisposable
             while (!_cts.Token.IsCancellationRequested)
             {
                 // Process all available items in the queue, but at most once per interval
-                while (_queue.TryDequeue(out float[]? samples))
+                while (_queue.TryDequeue(out var item))
                 {
-                    if (samples != null && samples.Length > 0)
+                    var (samples, length) = item;
+                    if (samples != null && length > 0)
                     {
-                        _fftService.ProcessSamples(samples.AsSpan());
+                        _fftService.ProcessSamples(samples.AsSpan(0, length));
+                    }
+
+                    // Return the rented array back to the pool
+                    if (samples != null)
+                    {
+                        ArrayPool<float>.Shared.Return(samples);
                     }
                 }
 
@@ -96,7 +106,14 @@ internal class FftQueue : IDisposable
     /// </summary>
     public void Clear()
     {
-        while (_queue.TryDequeue(out _)) { }
+        while (_queue.TryDequeue(out var item))
+        {
+            var (samples, _) = item;
+            if (samples != null)
+            {
+                ArrayPool<float>.Shared.Return(samples);
+            }
+        }
     }
 
     public void Dispose()

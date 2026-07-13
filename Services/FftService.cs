@@ -1,4 +1,5 @@
 using NAudio.Dsp;
+using PureAudio.Helpers;
 
 namespace PureAudio.Services;
 
@@ -238,6 +239,7 @@ public class FftService
     {
         var copy = new float[BinCount];
         Array.Copy(_currentData, copy, BinCount);
+        Logger.Log($"GetPlaceholderData: hasData={_hasData}, sum={copy.Sum():F4}, first={copy[0]:F4}, last={copy[BinCount-1]:F4}");
         return copy;
     }
 
