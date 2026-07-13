@@ -96,7 +96,7 @@ public class WasapiExclusivePlayer : IWavePlayer
         _playbackThread = new Thread(PlaybackThreadProc)
         {
             Name = "WASAPI Exclusive Playback",
-            Priority = ThreadPriority.AboveNormal,
+            Priority = ThreadPriority.Highest,
             IsBackground = true
         };
         _playbackThread.SetApartmentState(ApartmentState.MTA);
@@ -186,7 +186,7 @@ public class WasapiExclusivePlayer : IWavePlayer
                 int bytesRead = _sourceProvider!.Read(readBuffer, 0, bytesToRead);
                 if (bytesRead <= 0)
                 {
-                    Logger.Log("WasapiExclusivePlayer: end of stream reached");
+                    Logger.Log("WasapiExclusivePlayer: end of stream reached, breaking out of loop");
                     break;
                 }
 
@@ -266,8 +266,11 @@ public class WasapiExclusivePlayer : IWavePlayer
         Logger.Log($"WasapiExclusivePlayer: AudioClient mix format = {_audioClient.MixFormat?.SampleRate}Hz/{_audioClient.MixFormat?.BitsPerSample}bit/{_audioClient.MixFormat?.Channels}ch");
     }
 
+    private bool _cleanedUp;
     private void Cleanup()
     {
+        if (_cleanedUp) return;
+        _cleanedUp = true;
         _isPlaying = false;
         _isPaused = false;
         if (_renderClient != null) { try { _renderClient.Dispose(); } catch { } _renderClient = null; }

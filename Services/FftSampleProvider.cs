@@ -11,11 +11,13 @@ internal class FftSampleProvider : ISampleProvider
 {
     private readonly ISampleProvider _source;
     private readonly FftService _fftService;
+    private readonly FftQueue _fftQueue;
 
-    public FftSampleProvider(ISampleProvider source, FftService fftService)
+    public FftSampleProvider(ISampleProvider source, FftService fftService, FftQueue? fftQueue = null)
     {
         _source = source;
         _fftService = fftService;
+        _fftQueue = fftQueue ?? new FftQueue(fftService);
     }
 
     public WaveFormat WaveFormat => _source.WaveFormat;
@@ -30,8 +32,8 @@ internal class FftSampleProvider : ISampleProvider
             float[] fftBuffer = new float[samplesRead];
             System.Array.Copy(buffer, offset, fftBuffer, 0, samplesRead);
             
-            // Feed to spectrum analyzer
-            _fftService.ProcessSamples(fftBuffer);
+            // Feed to spectrum analyzer via thread-safe queue
+            _fftQueue.Enqueue(fftBuffer);
         }
         
         return samplesRead;

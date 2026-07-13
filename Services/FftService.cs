@@ -20,20 +20,25 @@ public class FftService
     // Per-band adaptive normalization: each band tracks its own max
     private readonly float[] _bandMax = new float[BinCount];
     private const float BandMaxAttack = 1.0f;   // Instant attack
-    private const float BandMaxDecay = 0.98f;    // Moderate decay for band individuality (was 0.95)
+    private const float BandMaxDecay = 0.93f;    // Faster decay so bands drop quicker after peaks
 
-    // EMA smoothing — moderate smoothing to reduce jitter while keeping responsiveness
-    private const float SmoothingAlpha = 0.85f;   // Moderate smoothing (was 0.9)
+    // EMA smoothing — slightly increased for smoother response
+    private const float SmoothingAlpha = 0.88f;  // Smoother response (was 0.9)
 
     // Peak hold with moderate falloff — peaks rise instantly, then decay at a natural rate
     // Fast enough to track transients, slow enough to be visually noticeable
     private const float PeakDecay = 0.85f;       // Faster decay for more natural peak falloff (was 0.92)
 
     // Contrast boost exponent — moderate contrast for smoother transitions between bands
-    private const float ContrastPower = 1.6f;    // Reduced contrast for smoother look (was 2.2)
+    private const float ContrastPower = 1.1f;    // Minimal contrast to avoid "sticking" to top (was 1.6)
 
     // High-frequency boost factor — compensates for lower energy in upper bands
     private const float HfBoostMax = 0.8f;       // Max boost applied to highest band
+
+    // Global input attenuation for FFT processing.
+    // Reduces overall spectrum sensitivity for both Shared and Exclusive modes.
+    // Lower values = less sensitive spectrum (more dynamic range visible).
+    private const float InputAttenuation = 0.15f;
 
     // Sample rate assumption for frequency calculations
     private float _sampleRate = 44100f;
@@ -112,10 +117,11 @@ public class FftService
             if (samples == null || samples.Length == 0)
                 return _currentData;
 
-            // Copy samples into the rolling buffer
+            // Apply global input attenuation to reduce overall spectrum sensitivity
+            // for both Shared and Exclusive modes.
             foreach (var sample in samples)
             {
-                _sampleBuffer[_sampleIndex] = sample;
+                _sampleBuffer[_sampleIndex] = sample * InputAttenuation;
                 _sampleIndex = (_sampleIndex + 1) % FftLength;
             }
 
@@ -190,6 +196,9 @@ public class FftService
 
                 // Clamp
                 float newValue = Math.Clamp(contrasted, 0, 1);
+
+                // Soft ceiling: prevent bands from reaching 100% to preserve headroom
+                newValue = Math.Min(newValue, 0.9f);
 
                 // --- Exponential Moving Average smoothing ---
                 // newColumn[i] = oldColumn[i] * (1 - alpha) + currentColumn[i] * alpha

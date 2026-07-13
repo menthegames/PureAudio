@@ -556,7 +556,7 @@
                             Command="{Binding ExpandedPanel.RefreshLibraryCommand}" />
                     <!-- Add Source Button -->
                     <Button Content="{Binding AddSourceText}"
-                            Width="130" Height="24"
+                            Width="150" Height="24"
                             FontSize="12"
                             Margin="4,0,0,0"
                             VerticalAlignment="Center"

@@ -258,6 +258,7 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         {
             IsScanning = true;
             _libraryService.AddHiresSource(dialog.SelectedPath);
+            _libraryService.SaveCache();
             IsScanning = false;
             OnPropertyChanged(nameof(CurrentLibrary));
             ApplyFilter();
@@ -272,6 +273,7 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         {
             IsScanning = true;
             _libraryService.AddMp3Source(dialog.SelectedPath);
+            _libraryService.SaveCache();
             IsScanning = false;
             OnPropertyChanged(nameof(CurrentLibrary));
             ApplyFilter();
@@ -459,6 +461,8 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         {
             _libraryService.RescanMp3();
         }
+
+        _libraryService.SaveCache();
 
         IsScanning = false;
         IsRefreshing = false;

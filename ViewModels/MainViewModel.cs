@@ -886,8 +886,9 @@ public class MainViewModel : INotifyPropertyChanged
         await Task.Run(() => LoadPlaylistInBackground());
         IsLoadingPlaylist = false;
 
-        // Step 2: Scan library in background
+        // Step 2: Load library — try cache first, fall back to full scan
         IsLoadingLibrary = true;
+        LoadingStatusText = "Loading library...";
         await Task.Run(() => LoadLibraryInBackground());
         IsLoadingLibrary = false;
 
@@ -957,13 +958,21 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Scan library sources on a background thread.
+    /// Load library — try cache first, fall back to full scan.
     /// </summary>
     private void LoadLibraryInBackground()
     {
         try
         {
-            _libraryService.RescanAll();
+            // Try loading from cache first (fast — no file scanning)
+            bool loadedFromCache = _libraryService.TryLoadCache();
+
+            if (!loadedFromCache)
+            {
+                // Cache miss or invalid — do a full scan
+                _libraryService.RescanAll();
+            }
+
             // Refresh the filtered library view on UI thread
             System.Windows.Application.Current.Dispatcher.Invoke(() =>
             {
@@ -973,7 +982,7 @@ public class MainViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            Logger.Log($"Background library scan error: {ex.Message}");
+            Logger.Log($"Background library load error: {ex.Message}");
         }
     }
 

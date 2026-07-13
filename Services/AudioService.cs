@@ -23,6 +23,7 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
     private readonly IWaveProvider _sourceProvider;
     private readonly IDisposable? _disposableSource;
     private readonly FftService? _fftService;
+    private readonly FftQueue _fftQueue;
     private readonly AudioFileReader? _audioFileReader; // For non-PCM formats (MP3, AAC, etc.)
     private bool _disposed;
 
@@ -39,9 +40,15 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
     // Buffer for float conversion (for FFT)
     private float[]? _floatBuffer;
 
-    public BitPerfectWaveProvider(string filePath, FftService? fftService = null)
+    // Pre-gain for FFT input in Exclusive mode.
+    // Reduces amplitude of PCM→float conversion to prevent spectrum saturation.
+    // Adjust this value to control spectrum sensitivity (lower = less sensitive).
+    private float _fftPreGain = 0.1f;
+
+    public BitPerfectWaveProvider(string filePath, FftService? fftService = null, FftQueue? fftQueue = null)
     {
         _fftService = fftService;
+        _fftQueue = fftQueue ?? new FftQueue(fftService ?? new FftService());
         string ext = Path.GetExtension(filePath).ToLowerInvariant();
 
         switch (ext)
@@ -54,9 +61,6 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
                 _totalPcmBytes = reader.Length;
                 _useAudioFileReader = false;
 
-                Logger.Log(
-                    $"BitPerfectWaveProvider: WAV - {reader.WaveFormat.SampleRate}Hz/{reader.WaveFormat.BitsPerSample}bit/{reader.WaveFormat.Channels}ch");
-
                 if (_fftService != null)
                     _fftService.SetSampleRate(reader.WaveFormat.SampleRate);
                 break;
@@ -67,16 +71,12 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
                 var reader = new FlacReader(filePath);
                 var format = reader.WaveFormat;
                 
-                Logger.Log($"BitPerfectWaveProvider: FlacReader format = {format.SampleRate}Hz/{format.BitsPerSample}bit/{format.Channels}ch, Encoding={format.Encoding}, BlockAlign={format.BlockAlign}, AverageBytesPerSecond={format.AverageBytesPerSecond}");
-                
                 // ВАЛИДАЦИЯ: Проверяем корректность формата
                 // Разрешаем любые стандартные битности (8, 16, 24, 32) и любое количество каналов (1-8)
                 // Sample rate может быть любым — FlacReader сам знает, что он декодирует
                 bool isValidFormat = (format.BitsPerSample == 8 || format.BitsPerSample == 16 || 
                                       format.BitsPerSample == 24 || format.BitsPerSample == 32) &&
                                      (format.Channels >= 1 && format.Channels <= 8);
-                
-                Logger.Log($"BitPerfectWaveProvider: FLAC isValidFormat={isValidFormat}, format={format.SampleRate}Hz/{format.BitsPerSample}bit/{format.Channels}ch, Encoding={format.Encoding}");
                 
                 if (!isValidFormat)
                 {
@@ -86,7 +86,6 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
                     // Fallback на AudioFileReader (декодирует в 32-bit Float)
                     var audioReader = new AudioFileReader(filePath);
                     audioReader.Volume = 1.0f;
-                    Logger.Log($"BitPerfectWaveProvider: AudioFileReader format = {audioReader.WaveFormat.SampleRate}Hz/{audioReader.WaveFormat.BitsPerSample}bit/{audioReader.WaveFormat.Channels}ch, Encoding={audioReader.WaveFormat.Encoding}");
                     _sourceProvider = audioReader;
                     _disposableSource = audioReader;
                     _audioFileReader = audioReader;
@@ -95,7 +94,6 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
                 }
                 else
                 {
-                    Logger.Log($"BitPerfectWaveProvider: using FlacReader directly");
                     _sourceProvider = reader;
                     _disposableSource = reader;
                     _totalPcmBytes = reader.TotalPcmBytes;
@@ -167,6 +165,8 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
 
     /// <summary>
     /// Converts PCM byte data to float samples and feeds them to FFT service.
+    /// Applies a pre-gain attenuation to prevent the spectrum from appearing
+    /// overly saturated in Exclusive mode (where no Windows mixer volume is applied).
     /// </summary>
     private void FeedFft(byte[] buffer, int offset, int bytesRead)
     {
@@ -228,9 +228,10 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
                     }
                     sample += chSample;
                 }
-                _floatBuffer[i] = Math.Clamp(sample / channels, -1f, 1f);
+                // Apply pre-gain attenuation and clamp
+                _floatBuffer[i] = Math.Clamp(sample / channels * _fftPreGain, -1f, 1f);
             }
-            _fftService!.ProcessSamples(_floatBuffer);
+            _fftQueue.Enqueue(_floatBuffer);
         }
         catch (Exception ex)
         {
@@ -350,6 +351,7 @@ public class AudioService : IDisposable
     private SoxResampler? _resampler; // Track the resampler for proper disposal
     private readonly PlaylistService _playlistService;
     private readonly FftService _fftService;
+    private readonly FftQueue _fftQueue;
     private readonly DeviceCapabilities _deviceCaps;
     private bool _bitPerfectMode;
     private bool _isPlaying;
@@ -360,6 +362,7 @@ public class AudioService : IDisposable
     private TimeSpan _pausePosition;
     private double _pausedProgress;
     private int _playbackId;
+    private bool _userStopRequested;
     private BitPerfectStatus _currentBitPerfectStatus = BitPerfectStatus.Off;
 
     public event Action<AudioFile>? TrackChanged;
@@ -479,6 +482,7 @@ public class AudioService : IDisposable
     {
         _playlistService = playlistService;
         _fftService = fftService;
+        _fftQueue = new FftQueue(fftService);
         _deviceCaps = new DeviceCapabilities();
     }
 
@@ -590,6 +594,7 @@ public class AudioService : IDisposable
     private void PlayInternal(TimeSpan position)
     {
         Logger.Log($"PlayInternal: requested position = {position.TotalSeconds:F3}s");
+        _userStopRequested = false;
         int currentPlaybackId = ++_playbackId;
         StopInternal();
 
@@ -599,6 +604,7 @@ public class AudioService : IDisposable
         try
         {
             _fftService.Reset();
+            _fftQueue.Clear();
 
             Logger.Log($"PlayInternal: file {currentItem.AudioFile.FilePath}, Metadata says {currentItem.AudioFile.BitsPerSample} bit / {currentItem.AudioFile.SampleRate} Hz");
 
@@ -606,7 +612,7 @@ public class AudioService : IDisposable
             {
                 // === BIT PERFECT PATH ===
                 _bitPerfectProvider = new BitPerfectWaveProvider(
-                    currentItem.AudioFile.FilePath, _fftService);
+                    currentItem.AudioFile.FilePath, _fftService, _fftQueue);
                 
                 int sourceSr = _bitPerfectProvider.WaveFormat.SampleRate;
                 int sourceBd = _bitPerfectProvider.WaveFormat.BitsPerSample;
@@ -662,8 +668,8 @@ public class AudioService : IDisposable
                         _audioFileReader.CurrentTime = position;
                     }
                     
-                    var fftProvider = new FftSampleProvider(_audioFileReader, _fftService);
-                    _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
+                    var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
+                    _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 150);
                     _outputDevice.PlaybackStopped += OnPlaybackStopped;
                     _outputDevice.Init(fftProvider);
                     
@@ -715,8 +721,8 @@ public class AudioService : IDisposable
                             _audioFileReader.CurrentTime = position;
                         }
                         
-                        var fftProvider = new FftSampleProvider(_audioFileReader, _fftService);
-                        _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
+                        var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
+                        _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 150);
                         _outputDevice.PlaybackStopped += OnPlaybackStopped;
                         _outputDevice.Init(fftProvider);
                         
@@ -745,9 +751,9 @@ public class AudioService : IDisposable
                 // ВАЖНО: AudioFileReader сам реализует ISampleProvider (через WaveStream).
                 // Оборачиваем его в FftSampleProvider, чтобы спектр (FFT) работал в Shared режиме.
                 // FftSampleProvider принимает ISampleProvider и передаёт данные в FftService.
-                var fftProvider = new FftSampleProvider(_audioFileReader, _fftService);
+                var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
 
-                _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
+                _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 150);
                 _outputDevice.PlaybackStopped += OnPlaybackStopped;
 
                 // WasapiOut.Init(ISampleProvider) — принимает ISampleProvider и сам конвертирует в IWaveProvider
@@ -783,25 +789,24 @@ public class AudioService : IDisposable
             Logger.Log("CreateWasapiOutput: creating WasapiExclusivePlayer (Bit Perfect mode)");
             try
             {
-                var exclusivePlayer = new WasapiExclusivePlayer(100);
+                var exclusivePlayer = new WasapiExclusivePlayer(200);
                 Logger.Log("CreateWasapiOutput: WasapiExclusivePlayer created successfully");
                 return exclusivePlayer;
             }
             catch (Exception ex)
             {
                 Logger.Log($"CreateWasapiOutput: FAILED to create WasapiExclusivePlayer: {ex.GetType().Name}: {ex.Message}");
-                Logger.Log($"CreateWasapiOutput: Stack: {ex.StackTrace}");
                 Logger.Log("CreateWasapiOutput: falling back to Shared WasapiOut");
                 _bitPerfectMode = false;
                 BitPerfectModeChanged?.Invoke(false);
-                var fallbackWasapi = new WasapiOut(AudioClientShareMode.Shared, 100);
+                var fallbackWasapi = new WasapiOut(AudioClientShareMode.Shared, 150);
                 Logger.Log("CreateWasapiOutput: Shared WasapiOut created as fallback");
                 return fallbackWasapi;
             }
         }
 
         Logger.Log("CreateWasapiOutput: creating Shared WasapiOut");
-        return new WasapiOut(AudioClientShareMode.Shared, 100);
+        return new WasapiOut(AudioClientShareMode.Shared, 150);
     }
 
     public void Pause()
@@ -887,6 +892,7 @@ public class AudioService : IDisposable
 
     public void Stop()
     {
+        _userStopRequested = true;
         StopInternal();
         _fftService.Reset();
         PlayStateChanged?.Invoke(false);
@@ -993,25 +999,42 @@ public class AudioService : IDisposable
 
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e)
     {
-        if (!_isPlaying || _isPaused)
-            return;
+        Logger.Log($"OnPlaybackStopped ENTER: isPlaying={_isPlaying}, isPaused={_isPaused}, sender={sender?.GetType().Name}, outputDevice={_outputDevice?.GetType().Name}, sender==outputDevice={sender == _outputDevice}");
 
-        if (sender != _outputDevice)
-            return;
-
-        Logger.Log($"OnPlaybackStopped: isPlaying={_isPlaying}, isPaused={_isPaused}");
-
-        System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+        // Если на паузе — игнорируем (пауза в Exclusive режиме вызывает Stop, что триггерит это событие)
+        if (_isPaused)
         {
-            try
-            {
-                Next();
-            }
-            catch (Exception ex)
-            {
-                Logger.Log($"Async Next() error: {ex.Message}");
-            }
-        });
+            Logger.Log("OnPlaybackStopped: ignored (paused)");
+            return;
+        }
+
+        // Проверяем, что событие пришло от текущего outputDevice
+        if (sender != _outputDevice)
+        {
+            Logger.Log("OnPlaybackStopped: ignored (sender != _outputDevice)");
+            return;
+        }
+
+        // Естественное окончание трека: _isPlaying может быть уже false (сброшен в StopInternal),
+        // но мы всё равно должны перейти к следующему треку.
+        // Единственный случай, когда не нужно переходить — это когда пользователь явно нажал Stop.
+        // Используем флаг _userStopRequested для этого.
+        if (_userStopRequested)
+        {
+            Logger.Log("OnPlaybackStopped: ignored (user stop requested)");
+            return;
+        }
+
+        Logger.Log($"OnPlaybackStopped: proceeding to Next() synchronously");
+
+        try
+        {
+            Next();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"OnPlaybackStopped: Next() error: {ex.Message}");
+        }
     }
 
     private async void StartPositionTracking()
