@@ -235,9 +235,10 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Whether bit-perfect indicators should be gold (active).
-    /// True when Bit Perfect mode is ON and a track is playing.
+    /// True when Bit Perfect mode is ON and a track is playing OR paused.
+    /// The indicator should NOT turn off during pause — only on Stop.
     /// </summary>
-    public bool IsBitPerfectActive => _bitPerfectMode && _isPlaying && _audioService.CurrentSampleRate > 0;
+    public bool IsBitPerfectActive => _bitPerfectMode && (_isPlaying || _audioService.IsPaused) && _audioService.CurrentSampleRate > 0;
 
     /// <summary>
     /// Color for bit depth text — bright gold when bit-perfect active, gray when inactive.
@@ -665,12 +666,13 @@ public class MainViewModel : INotifyPropertyChanged
     /// <summary>
     /// Color for the Source status indicator dot.
     /// Green (#4CAF50) for Perfect, Gold (#FFC107) for Limited, Gray (#555555) for Off.
+    /// Stays active during pause — only turns gray on Stop.
     /// </summary>
     public string SourceIndicatorColor
     {
         get
         {
-            if (!_bitPerfectMode || !_isPlaying)
+            if (!_bitPerfectMode || (!_isPlaying && !_audioService.IsPaused))
                 return "#555555";
 
             return _bitPerfectStatus switch
@@ -697,7 +699,7 @@ public class MainViewModel : INotifyPropertyChanged
     {
         get
         {
-            if (!_bitPerfectMode || !_isPlaying)
+            if (!_bitPerfectMode || (!_isPlaying && !_audioService.IsPaused))
                 return "Bit Perfect: Off";
 
             return _bitPerfectStatus switch
@@ -712,12 +714,13 @@ public class MainViewModel : INotifyPropertyChanged
     /// <summary>
     /// Color for the Bit Perfect status indicator.
     /// Green for Perfect, yellow for Limited, gray for Off.
+    /// Stays active during pause — only turns gray on Stop.
     /// </summary>
     public string BitPerfectStatusColor
     {
         get
         {
-            if (!_bitPerfectMode || !_isPlaying)
+            if (!_bitPerfectMode || (!_isPlaying && !_audioService.IsPaused))
                 return "#555555";
 
             return _bitPerfectStatus switch
@@ -732,12 +735,13 @@ public class MainViewModel : INotifyPropertyChanged
     /// <summary>
     /// Large status label text shown in the left info area.
     /// "Bit Perfect" when Perfect, "Hi-Q SRC" when Limited, "Standard Mode" when Off.
+    /// Stays active during pause — only reverts on Stop.
     /// </summary>
     public string StatusLabelText
     {
         get
         {
-            if (!_bitPerfectMode || !_isPlaying)
+            if (!_bitPerfectMode || (!_isPlaying && !_audioService.IsPaused))
                 return "Standard Mode";
 
             return _bitPerfectStatus switch
@@ -752,12 +756,13 @@ public class MainViewModel : INotifyPropertyChanged
     /// <summary>
     /// Color for the large status label.
     /// Green (#4CAF50) for Perfect, Gold (#FFC107) for Limited, Gray (#555555) for Off.
+    /// Stays active during pause — only turns gray on Stop.
     /// </summary>
     public string StatusLabelColor
     {
         get
         {
-            if (!_bitPerfectMode || !_isPlaying)
+            if (!_bitPerfectMode || (!_isPlaying && !_audioService.IsPaused))
                 return "#555555";
 
             return _bitPerfectStatus switch

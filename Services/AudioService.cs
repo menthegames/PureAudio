@@ -826,29 +826,14 @@ public class AudioService : IDisposable
 
             if (_bitPerfectMode)
             {
-                // В Exclusive режиме: полная остановка с очисткой ресурсов.
-                // WASAPI Exclusive не поддерживает паузу с сохранением позиции —
-                // AudioClient.Stop() сбрасывает состояние буфера.
-                // При возобновлении сделаем полный перезапуск через PlayInternal(_pausePosition).
-                Logger.Log($"PAUSE (Exclusive): doing full stop+cleanup, will resume from {_pausePosition.TotalSeconds:F3}s");
+                // В Exclusive режиме: используем Pause() из WasapiExclusivePlayer.
+                // Он вызывает AudioClient.Stop() без очистки ресурсов,
+                // что позволяет быстро возобновить воспроизведение через Play().
+                Logger.Log($"PAUSE (Exclusive): using WasapiExclusivePlayer.Pause(), position preserved at {_pausePosition.TotalSeconds:F3}s");
                 
-                // Отписываемся, чтобы OnPlaybackStopped не вызвал Next()
                 _outputDevice.PlaybackStopped -= OnPlaybackStopped;
-                _outputDevice.Stop();
-                _outputDevice.Dispose();
-                _outputDevice = null;
-                
-                if (_resampler != null)
-                {
-                    _resampler.Dispose();
-                    _resampler = null;
-                }
-
-                if (_bitPerfectProvider != null)
-                {
-                    _bitPerfectProvider.Dispose();
-                    _bitPerfectProvider = null;
-                }
+                _outputDevice.Pause();
+                _outputDevice.PlaybackStopped += OnPlaybackStopped;
             }
             else
             {
@@ -866,11 +851,16 @@ public class AudioService : IDisposable
         {
             Logger.Log($"RESUME: restoring position = {_pausePosition.TotalSeconds:F3}s, bitPerfectMode={_bitPerfectMode}");
 
-            if (_bitPerfectMode)
+            if (_bitPerfectMode && _outputDevice != null)
             {
-                // В Exclusive режиме: полный перезапуск с сохранённой позиции
-                Logger.Log($"RESUME (Exclusive): full restart from {_pausePosition.TotalSeconds:F3}s");
-                PlayInternal(_pausePosition);
+                // В Exclusive режиме: просто возобновляем через Play().
+                // WasapiExclusivePlayer.Play() вызывает AudioClient.Start(),
+                // поток жив, ресурсы не были очищены.
+                Logger.Log($"RESUME (Exclusive): calling WasapiExclusivePlayer.Play()");
+                _outputDevice.Play();
+                _isPlaying = true;
+                _isPaused = false;
+                PlayStateChanged?.Invoke(true);
             }
             else if (_outputDevice != null && _audioFileReader != null)
             {

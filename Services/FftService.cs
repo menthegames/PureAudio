@@ -110,11 +110,11 @@ public class FftService
         }
     }
 
-    public float[] ProcessSamples(float[] samples)
+    public float[] ProcessSamples(ReadOnlySpan<float> samples)
     {
         try
         {
-            if (samples == null || samples.Length == 0)
+            if (samples.Length == 0)
                 return _currentData;
 
             // Apply global input attenuation to reduce overall spectrum sensitivity
@@ -145,6 +145,10 @@ public class FftService
             FastFourierTransform.FFT(true, (int)Math.Log2(FftLength), _fftBuffer);
 
             // Compute magnitude for each display bin
+            Span<float> currentData = _currentData.AsSpan();
+            Span<float> peakData = _peakData.AsSpan();
+            Span<float> bandMax = _bandMax.AsSpan();
+
             for (int i = 0; i < BinCount; i++)
             {
                 var (startBin, endBin) = _binRanges[i];
@@ -171,20 +175,20 @@ public class FftService
                 combinedMagnitude *= hfBoost;
 
                 // Per-band adaptive normalization
-                if (combinedMagnitude > _bandMax[i])
+                if (combinedMagnitude > bandMax[i])
                 {
-                    _bandMax[i] = _bandMax[i] * (1 - BandMaxAttack) + combinedMagnitude * BandMaxAttack;
+                    bandMax[i] = bandMax[i] * (1 - BandMaxAttack) + combinedMagnitude * BandMaxAttack;
                 }
                 else
                 {
-                    _bandMax[i] *= BandMaxDecay;
+                    bandMax[i] *= BandMaxDecay;
                 }
 
-                if (_bandMax[i] < 0.0001f)
-                    _bandMax[i] = 0.0001f;
+                if (bandMax[i] < 0.0001f)
+                    bandMax[i] = 0.0001f;
 
                 // Normalize by this band's own max
-                float normalized = combinedMagnitude / _bandMax[i];
+                float normalized = combinedMagnitude / bandMax[i];
 
                 // Light compression: raise to 0.7 power instead of sqrt (0.5)
                 // This preserves more transient detail while still compressing range
@@ -202,11 +206,11 @@ public class FftService
 
                 // --- Exponential Moving Average smoothing ---
                 // newColumn[i] = oldColumn[i] * (1 - alpha) + currentColumn[i] * alpha
-                _currentData[i] = _currentData[i] * (1 - SmoothingAlpha) + newValue * SmoothingAlpha;
+                currentData[i] = currentData[i] * (1 - SmoothingAlpha) + newValue * SmoothingAlpha;
 
                 // --- Peak hold with exponential decay ---
                 // peak[i] = Max(currentColumn[i], peak[i] * decay)
-                _peakData[i] = Math.Max(_currentData[i], _peakData[i] * PeakDecay);
+                peakData[i] = Math.Max(currentData[i], peakData[i] * PeakDecay);
             }
 
             // --- Inter-band smoothing (3-tap moving average) ---
@@ -217,8 +221,8 @@ public class FftService
             {
                 int left = i > 0 ? i - 1 : i;
                 int right = i < BinCount - 1 ? i + 1 : i;
-                float smoothed = _currentData[left] * 0.25f + _currentData[i] * 0.5f + _currentData[right] * 0.25f;
-                _currentData[i] = smoothed;
+                float smoothed = currentData[left] * 0.25f + currentData[i] * 0.5f + currentData[right] * 0.25f;
+                currentData[i] = smoothed;
             }
 
             _hasData = true;

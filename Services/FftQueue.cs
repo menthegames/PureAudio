@@ -71,7 +71,7 @@ internal class FftQueue : IDisposable
                 {
                     if (samples != null && samples.Length > 0)
                     {
-                        _fftService.ProcessSamples(samples);
+                        _fftService.ProcessSamples(samples.AsSpan());
                     }
                 }
 
