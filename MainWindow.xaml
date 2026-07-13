@@ -712,6 +712,15 @@
                             FontSize="11"
                             ToolTip="Delete current playlist"
                             Command="{Binding ExpandedPanel.DeletePlaylistCommand}" />
+                    <!-- Import external playlist -->
+                    <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}"
+                               Margin="4,2" />
+                    <Button Content="{Binding ExpandedPanel.ImportPlaylistText}"
+                            Height="28" Width="52"
+                            Margin="0,0,0,0"
+                            FontSize="11"
+                            ToolTip="Import .m3u / .pls playlist"
+                            Command="{Binding ExpandedPanel.ImportPlaylistCommand}" />
 
                 </StackPanel>
             </Border>

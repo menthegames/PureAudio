@@ -364,6 +364,10 @@ public class AudioService : IDisposable
     private int _playbackId;
     private bool _userStopRequested;
     private BitPerfectStatus _currentBitPerfectStatus = BitPerfectStatus.Off;
+    
+    // CUE track support
+    private CueTrack? _currentCueTrack;
+    private bool _isCueTrack;
 
     public event Action<AudioFile>? TrackChanged;
     public event Action<bool>? PlayStateChanged;
@@ -618,6 +622,14 @@ public class AudioService : IDisposable
         var currentItem = _playlistService.CurrentItem;
         if (currentItem == null) return;
 
+        // Check if this is a CUE track
+        _currentCueTrack = currentItem.CueTrack;
+        _isCueTrack = _currentCueTrack != null;
+        if (_isCueTrack)
+        {
+            Logger.Log($"PlayInternal: CUE track detected — file={_currentCueTrack!.FilePath}, start={_currentCueTrack.StartPosition}, end={_currentCueTrack.EndPosition}");
+        }
+
         try
         {
             _fftService.Reset();
@@ -630,6 +642,13 @@ public class AudioService : IDisposable
                 // === BIT PERFECT PATH ===
                 _bitPerfectProvider = new BitPerfectWaveProvider(
                     currentItem.AudioFile.FilePath, _fftService, _fftQueue);
+                
+                // If this is a CUE track, seek to the start position
+                if (_isCueTrack && _currentCueTrack != null)
+                {
+                    Logger.Log($"PlayInternal (Bit Perfect): seeking to CUE start position {_currentCueTrack.StartPosition}");
+                    _bitPerfectProvider.Seek(_currentCueTrack.StartPosition);
+                }
                 
                 int sourceSr = _bitPerfectProvider.WaveFormat.SampleRate;
                 int sourceBd = _bitPerfectProvider.WaveFormat.BitsPerSample;
@@ -686,7 +705,7 @@ public class AudioService : IDisposable
                     }
                     
                     var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
-                    _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 150);
+                    _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
                     _outputDevice.PlaybackStopped += OnPlaybackStopped;
                     _outputDevice.Init(fftProvider);
                     
@@ -739,7 +758,7 @@ public class AudioService : IDisposable
                         }
                         
                         var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
-                        _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 150);
+                        _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
                         _outputDevice.PlaybackStopped += OnPlaybackStopped;
                         _outputDevice.Init(fftProvider);
                         
@@ -760,7 +779,13 @@ public class AudioService : IDisposable
 
                 Logger.Log($"PlayInternal (Shared): opened file, total={_audioFileReader.TotalTime.TotalSeconds:F3}s, format={_audioFileReader.WaveFormat.SampleRate}Hz/{_audioFileReader.WaveFormat.BitsPerSample}bit/{_audioFileReader.WaveFormat.Channels}ch");
 
-                if (position < _audioFileReader.TotalTime)
+                // If this is a CUE track, seek to the start position
+                if (_isCueTrack && _currentCueTrack != null)
+                {
+                    Logger.Log($"PlayInternal (Shared): seeking to CUE start position {_currentCueTrack.StartPosition}");
+                    _audioFileReader.CurrentTime = _currentCueTrack.StartPosition;
+                }
+                else if (position < _audioFileReader.TotalTime)
                 {
                     _audioFileReader.CurrentTime = position;
                 }
@@ -770,7 +795,7 @@ public class AudioService : IDisposable
                 // FftSampleProvider принимает ISampleProvider и передаёт данные в FftService.
                 var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
 
-                _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 150);
+                _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
                 _outputDevice.PlaybackStopped += OnPlaybackStopped;
 
                 // WasapiOut.Init(ISampleProvider) — принимает ISampleProvider и сам конвертирует в IWaveProvider
@@ -814,7 +839,7 @@ public class AudioService : IDisposable
                     _audioFileReader.Volume = _volume;
                     
                     var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
-                    _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 150);
+                    _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
                     _outputDevice.PlaybackStopped += OnPlaybackStopped;
                     _outputDevice.Init(fftProvider);
                     _outputDevice.Play();
@@ -859,7 +884,7 @@ public class AudioService : IDisposable
             Logger.Log("CreateWasapiOutput: creating WasapiExclusivePlayer (Bit Perfect mode)");
             try
             {
-                var exclusivePlayer = new WasapiExclusivePlayer(200);
+                var exclusivePlayer = new WasapiExclusivePlayer(100);
                 Logger.Log("CreateWasapiOutput: WasapiExclusivePlayer created successfully");
                 return exclusivePlayer;
             }
@@ -869,14 +894,14 @@ public class AudioService : IDisposable
                 Logger.Log("CreateWasapiOutput: falling back to Shared WasapiOut");
                 _bitPerfectMode = false;
                 BitPerfectModeChanged?.Invoke(false);
-                var fallbackWasapi = new WasapiOut(AudioClientShareMode.Shared, 150);
+                var fallbackWasapi = new WasapiOut(AudioClientShareMode.Shared, 100);
                 Logger.Log("CreateWasapiOutput: Shared WasapiOut created as fallback");
                 return fallbackWasapi;
             }
         }
 
         Logger.Log("CreateWasapiOutput: creating Shared WasapiOut");
-        return new WasapiOut(AudioClientShareMode.Shared, 150);
+        return new WasapiOut(AudioClientShareMode.Shared, 100);
     }
 
     public void Pause()
@@ -992,29 +1017,88 @@ public class AudioService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Play a specific CUE track by its CueTrack information.
+    /// Sets the playlist to the item that contains this CUE track and starts playback
+    /// from the CUE track's start position.
+    /// </summary>
+    public void PlayCueTrack(CueTrack cueTrack)
+    {
+        Logger.Log($"PlayCueTrack: file={cueTrack.FilePath}, track={cueTrack.TrackNumber}, start={cueTrack.StartPosition}, end={cueTrack.EndPosition}");
+
+        // Find the playlist item that contains this CUE track
+        var item = _playlistService.Items.FirstOrDefault(i =>
+            i.CueTrack != null &&
+            i.CueTrack.FilePath == cueTrack.FilePath &&
+            i.CueTrack.TrackNumber == cueTrack.TrackNumber);
+
+        if (item == null)
+        {
+            Logger.Log("PlayCueTrack: CUE track not found in playlist, searching by file path");
+            // Fallback: find any item with the same audio file
+            item = _playlistService.Items.FirstOrDefault(i =>
+                i.AudioFile.FilePath == cueTrack.FilePath);
+        }
+
+        if (item != null)
+        {
+            int index = _playlistService.Items.IndexOf(item);
+            if (index >= 0)
+            {
+                _playlistService.CurrentIndex = index;
+                PlayInternal(TimeSpan.Zero);
+            }
+        }
+        else
+        {
+            Logger.Log("PlayCueTrack: no matching playlist item found");
+        }
+    }
+
     public void Next()
     {
         var next = _playlistService.GetNext();
         if (next != null)
+        {
             PlayInternal(TimeSpan.Zero);
+        }
         else
+        {
             Stop();
+        }
     }
 
     public void Previous()
     {
         var prev = _playlistService.GetPrevious();
         if (prev != null)
+        {
             PlayInternal(TimeSpan.Zero);
+        }
         else
+        {
             Stop();
+        }
     }
 
     public void Seek(double fraction)
     {
         if (_bitPerfectMode && _bitPerfectProvider != null)
         {
-            var newPosition = TimeSpan.FromTicks((long)(_bitPerfectProvider.TotalTime.Ticks * fraction));
+            // For CUE tracks, clamp position within the track bounds
+            TimeSpan totalTime = _bitPerfectProvider.TotalTime;
+            TimeSpan newPosition = TimeSpan.FromTicks((long)(totalTime.Ticks * fraction));
+            
+            if (_isCueTrack && _currentCueTrack != null)
+            {
+                // Clamp to CUE track bounds
+                TimeSpan cueStart = _currentCueTrack.StartPosition;
+                TimeSpan cueEnd = _currentCueTrack.EndPosition;
+                TimeSpan cueDuration = cueEnd - cueStart;
+                newPosition = cueStart + TimeSpan.FromTicks((long)(cueDuration.Ticks * fraction));
+                Logger.Log($"Seek (Bit Perfect, CUE): fraction={fraction:F4}, cueStart={cueStart}, cueEnd={cueEnd}, newPosition={newPosition}");
+            }
+            
             _bitPerfectProvider.Seek(newPosition);
             
             // If resampler is active, we need to recreate it because the internal
@@ -1050,7 +1134,19 @@ public class AudioService : IDisposable
         }
         else if (_audioFileReader != null)
         {
-            var newPosition = TimeSpan.FromTicks((long)(_audioFileReader.TotalTime.Ticks * fraction));
+            TimeSpan totalTime = _audioFileReader.TotalTime;
+            TimeSpan newPosition = TimeSpan.FromTicks((long)(totalTime.Ticks * fraction));
+            
+            if (_isCueTrack && _currentCueTrack != null)
+            {
+                // Clamp to CUE track bounds
+                TimeSpan cueStart = _currentCueTrack.StartPosition;
+                TimeSpan cueEnd = _currentCueTrack.EndPosition;
+                TimeSpan cueDuration = cueEnd - cueStart;
+                newPosition = cueStart + TimeSpan.FromTicks((long)(cueDuration.Ticks * fraction));
+                Logger.Log($"Seek (Shared, CUE): fraction={fraction:F4}, cueStart={cueStart}, cueEnd={cueEnd}, newPosition={newPosition}");
+            }
+            
             _audioFileReader.CurrentTime = newPosition;
             PositionChanged?.Invoke(newPosition);
         }
@@ -1109,8 +1205,17 @@ public class AudioService : IDisposable
             {
                 await Task.Delay(250, token);
 
-                // Use CurrentPosition property which handles resampler scaling
-                PositionChanged?.Invoke(CurrentPosition);
+                var currentPos = CurrentPosition;
+                PositionChanged?.Invoke(currentPos);
+
+                // Check if CUE track has reached its end position
+                if (_isCueTrack && _currentCueTrack != null && currentPos >= _currentCueTrack.EndPosition)
+                {
+                    Logger.Log($"StartPositionTracking: CUE track reached end position {_currentCueTrack.EndPosition}, advancing to next track");
+                    _userStopRequested = false;
+                    Next();
+                    return;
+                }
             }
         }
         catch (TaskCanceledException) { }

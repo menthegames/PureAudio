@@ -49,6 +49,19 @@ public class PlaylistService
         }
     }
 
+    /// <summary>
+    /// Add a CUE track (virtual track within a larger audio file) to the playlist.
+    /// Uses the physical file path for duplicate detection, but stores CueTrack info
+    /// for proper playback (seek to StartPosition, stop at EndPosition).
+    /// </summary>
+    public void Add(AudioFile file, CueTrack cueTrack)
+    {
+        if (!Items.Any(i => i.AudioFile.FilePath == file.FilePath && i.CueTrack?.StartPosition == cueTrack.StartPosition))
+        {
+            Items.Add(new PlaylistItem { AudioFile = file, Index = Items.Count, CueTrack = cueTrack });
+        }
+    }
+
     public void RemoveAt(int index)
     {
         if (index >= 0 && index < Items.Count)

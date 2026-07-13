@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
+using PureAudio.Helpers;
 using PureAudio.Models;
 
 namespace PureAudio.Services;
@@ -144,39 +145,130 @@ public class LibraryService
             }
         }
 
-        // Add audio files
-        foreach (var file in dirInfo.GetFiles())
+        // --- CUE Sheet handling ---
+        // Collect all .cue files in this directory
+        var cueFiles = dirInfo.GetFiles("*.cue")
+            .Where(f => !_excludedPaths.Contains(Path.GetFullPath(f.FullName)))
+            .ToList();
+
+        bool anyValidCue = false;
+
+        if (cueFiles.Count > 0)
         {
-            if (!allowedExtensions.Contains(file.Extension)) continue;
-
-            var filePath = file.FullName;
-            var normalizedPath = Path.GetFullPath(filePath);
-
-            // Skip if already indexed or excluded by user
-            if (!_allFilePaths.Add(normalizedPath)) continue;
-            if (_excludedPaths.Contains(normalizedPath)) continue;
-
-            var audioFile = MetadataService.ReadMetadata(filePath);
-            var fileNode = new LibraryNode
+            // CUE files found — try to create virtual album groups from CUE sheets.
+            // If at least one CUE file parses successfully, do NOT add individual audio files.
+            // If ALL CUE files fail to parse, fall back to adding audio files normally.
+            foreach (var cueFile in cueFiles)
             {
-                Name = $"{audioFile.Artist} - {audioFile.Title}",
-                FullPath = filePath,
-                IsFolder = false,
-                AudioFile = audioFile
-            };
-            node.Children.Add(fileNode);
+                var cueFilePath = cueFile.FullName;
+                Logger.Log($"Found CUE file: {cueFilePath}");
 
-            // Also add to flat list
-            flatList.Add(new LibraryItem
+                var cueTracks = CueSheetService.ParseCueFile(cueFilePath);
+
+                if (cueTracks.Count == 0)
+                {
+                    Logger.Log($"CUE file parsed but no tracks found: {cueFilePath}");
+                    continue;
+                }
+
+                anyValidCue = true;
+                Logger.Log($"CUE parsed successfully: {cueTracks.Count} tracks, album=\"{cueTracks[0].Album}\"");
+
+                // Determine group name: use album name from CUE, or fall back to CUE filename
+                var albumName = !string.IsNullOrEmpty(cueTracks[0].Album) && cueTracks[0].Album != "Unknown Album"
+                    ? cueTracks[0].Album
+                    : Path.GetFileNameWithoutExtension(cueFile.Name);
+
+                // Create a virtual folder node for this album
+                var albumNode = new LibraryNode
+                {
+                    Name = albumName,
+                    FullPath = cueFilePath, // Use CUE file path as identifier
+                    IsFolder = true
+                };
+
+                // Mark the physical audio file as indexed so it won't be added separately
+                var audioFilePath = Path.GetFullPath(cueTracks[0].FilePath);
+                _allFilePaths.Add(audioFilePath);
+
+                foreach (var cueTrack in cueTracks)
+                {
+                    // Create an AudioFile with metadata from CUE
+                    var audioFile = new AudioFile
+                    {
+                        FilePath = cueTrack.FilePath,
+                        Artist = cueTrack.Artist,
+                        Title = cueTrack.Title,
+                        Album = cueTrack.Album,
+                        Duration = cueTrack.Duration,
+                        // SampleRate and BitsPerSample will be filled lazily or from cache
+                    };
+
+                    var trackNode = new LibraryNode
+                    {
+                        Name = $"{cueTrack.Artist} - {cueTrack.Title}",
+                        FullPath = cueTrack.FilePath,
+                        IsFolder = false,
+                        AudioFile = audioFile,
+                        CueTrack = cueTrack
+                    };
+
+                    albumNode.Children.Add(trackNode);
+
+                    Logger.Log($"Added virtual track: {cueTrack.Title} ({cueTrack.StartPosition} - {cueTrack.EndPosition})");
+
+                    // Add to flat list
+                    flatList.Add(new LibraryItem
+                    {
+                        AudioFile = audioFile,
+                        FolderPath = rootPath
+                    });
+                }
+
+                if (albumNode.Children.Count > 0)
+                    node.Children.Add(albumNode);
+            }
+        }
+
+        // If no valid CUE sheets were found, add audio files normally
+        if (!anyValidCue)
+        {
+            Logger.Log($"No valid CUE found in {currentPath}, scanning individual audio files");
+
+            foreach (var file in dirInfo.GetFiles())
             {
-                AudioFile = audioFile,
-                FolderPath = rootPath
-            });
+                if (!allowedExtensions.Contains(file.Extension)) continue;
+
+                var filePath = file.FullName;
+                var normalizedPath = Path.GetFullPath(filePath);
+
+                // Skip if already indexed or excluded by user
+                if (!_allFilePaths.Add(normalizedPath)) continue;
+                if (_excludedPaths.Contains(normalizedPath)) continue;
+
+                var audioFile = MetadataService.ReadMetadata(filePath);
+                var fileNode = new LibraryNode
+                {
+                    Name = $"{audioFile.Artist} - {audioFile.Title}",
+                    FullPath = filePath,
+                    IsFolder = false,
+                    AudioFile = audioFile
+                };
+                node.Children.Add(fileNode);
+
+                // Also add to flat list
+                flatList.Add(new LibraryItem
+                {
+                    AudioFile = audioFile,
+                    FolderPath = rootPath
+                });
+            }
         }
 
         // Only return this node if it has children (files or subfolders with files)
         return node.Children.Count > 0 ? node : null;
     }
+
 
     /// <summary>
     /// Rescan all sources (called on startup after loading sources).
@@ -338,11 +430,13 @@ public class LibraryService
             FullPath = original.FullPath,
             IsFolder = original.IsFolder,
             AudioFile = original.AudioFile,
+            CueTrack = original.CueTrack,
             IsExpanded = original.IsExpanded,
             Children = new ObservableCollection<LibraryNode>(original.Children.Select(CloneNode))
         };
         return clone;
     }
+
 
     /// <summary>
     /// Remove a single audio file from the library (both tree and flat list).
@@ -567,7 +661,7 @@ public class LibraryService
         {
             var cache = new LibraryCacheData
             {
-                Version = "1.0",
+                Version = "1.1",
                 LastUpdated = DateTime.UtcNow,
                 Files = new List<CachedFileEntry>(),
                 Tree = new List<CachedTreeNode>()
@@ -644,6 +738,32 @@ public class LibraryService
             var cache = JsonSerializer.Deserialize<LibraryCacheData>(json);
             if (cache == null || cache.Files == null || cache.Tree == null)
                 return false;
+
+            // Check cache version — if version mismatch, invalidate cache
+            // (e.g., after adding CUE track support, old cache without CUE data must be rebuilt)
+            const string expectedVersion = "1.1";
+            if (cache.Version != expectedVersion)
+            {
+                Logger.Log($"Cache version mismatch: expected {expectedVersion}, got {cache.Version}. Rebuilding cache.");
+                return false;
+            }
+
+            // Check if any .cue file referenced in the cache has been modified
+            // since the cache was saved. If so, cache is stale.
+            var cueFilesToCheck = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            CollectCueFilePaths(cache.Tree, cueFilesToCheck);
+            foreach (var cueFilePath in cueFilesToCheck)
+            {
+                if (File.Exists(cueFilePath))
+                {
+                    var cueFileTime = File.GetLastWriteTimeUtc(cueFilePath);
+                    if (cueFileTime > cache.LastUpdated)
+                    {
+                        Logger.Log($"CUE file modified since cache: {cueFilePath}, cache invalidated");
+                        return false;
+                    }
+                }
+            }
 
             // Build a lookup dictionary for cached file entries
             var fileLookup = new Dictionary<string, CachedFileEntry>(StringComparer.OrdinalIgnoreCase);
@@ -725,11 +845,59 @@ public class LibraryService
             if (!_allFilePaths.Add(normalizedPath))
                 return null; // already added
 
+            // Check if this is a CUE track node
+            if (cached.CueTrack != null)
+            {
+                var ct = cached.CueTrack;
+                var cueTrack = new CueTrack
+                {
+                    FilePath = ct.FilePath,
+                    Artist = ct.Artist,
+                    Title = ct.Title,
+                    Album = ct.Album,
+                    TrackNumber = ct.TrackNumber,
+                    StartPosition = TimeSpan.FromSeconds(ct.StartPositionSeconds),
+                    EndPosition = TimeSpan.FromSeconds(ct.EndPositionSeconds),
+                    CueFilePath = ct.CueFilePath
+                };
+
+                var audioFile = new AudioFile
+                {
+                    FilePath = cueTrack.FilePath,
+                    Artist = cueTrack.Artist,
+                    Title = cueTrack.Title,
+                    Album = cueTrack.Album,
+                    Duration = cueTrack.Duration
+                };
+
+                var fileNode = new LibraryNode
+                {
+                    Name = $"{cueTrack.Artist} - {cueTrack.Title}",
+                    FullPath = cueTrack.FilePath,
+                    IsFolder = false,
+                    AudioFile = audioFile,
+                    CueTrack = cueTrack
+                };
+
+                // Add to flat list
+                var flatList = HiresSources.Any(s =>
+                    normalizedPath.StartsWith(Path.GetFullPath(s), StringComparison.OrdinalIgnoreCase))
+                    ? HiresFiles : Mp3Files;
+                flatList.Add(new LibraryItem
+                {
+                    AudioFile = audioFile,
+                    FolderPath = rootPath
+                });
+
+                return fileNode;
+            }
+
+            // Regular file node
             CachedFileEntry? entry = null;
             if (!fileLookup.TryGetValue(normalizedPath, out entry))
                 return null;
 
-            var audioFile = new AudioFile
+            var audioFile2 = new AudioFile
             {
                 FilePath = normalizedPath,
                 Artist = entry.Artist,
@@ -742,25 +910,49 @@ public class LibraryService
                 CoverPath = entry.CoverPath
             };
 
-            var fileNode = new LibraryNode
+            var fileNode2 = new LibraryNode
             {
-                Name = $"{audioFile.Artist} - {audioFile.Title}",
+                Name = $"{audioFile2.Artist} - {audioFile2.Title}",
                 FullPath = normalizedPath,
                 IsFolder = false,
-                AudioFile = audioFile
+                AudioFile = audioFile2
             };
 
             // Add to flat list
-            var flatList = HiresSources.Any(s =>
+            var flatList2 = HiresSources.Any(s =>
                 normalizedPath.StartsWith(Path.GetFullPath(s), StringComparison.OrdinalIgnoreCase))
                 ? HiresFiles : Mp3Files;
-            flatList.Add(new LibraryItem
+            flatList2.Add(new LibraryItem
             {
-                AudioFile = audioFile,
+                AudioFile = audioFile2,
                 FolderPath = rootPath
             });
 
-            return fileNode;
+            return fileNode2;
+        }
+    }
+
+    /// <summary>
+    /// Recursively collect all .cue file paths from a cached tree structure.
+    /// Used to check if any CUE file has been modified since cache was saved.
+    /// </summary>
+    private static void CollectCueFilePaths(List<CachedTreeNode> nodes, HashSet<string> cuePaths)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.IsFolder)
+            {
+                // Check if this folder node represents a CUE album (FullPath ends with .cue)
+                if (node.FullPath.EndsWith(".cue", StringComparison.OrdinalIgnoreCase))
+                {
+                    cuePaths.Add(Path.GetFullPath(node.FullPath));
+                }
+                CollectCueFilePaths(node.Children, cuePaths);
+            }
+            else if (node.CueTrack != null && !string.IsNullOrEmpty(node.CueTrack.CueFilePath))
+            {
+                cuePaths.Add(Path.GetFullPath(node.CueTrack.CueFilePath));
+            }
         }
     }
 
@@ -777,6 +969,22 @@ public class LibraryService
             FilePath = node.IsFolder ? null : node.FullPath
         };
 
+        // Serialize CueTrack if present
+        if (node.CueTrack != null)
+        {
+            cached.CueTrack = new CachedCueTrack
+            {
+                FilePath = node.CueTrack.FilePath,
+                Artist = node.CueTrack.Artist,
+                Title = node.CueTrack.Title,
+                Album = node.CueTrack.Album,
+                TrackNumber = node.CueTrack.TrackNumber,
+                StartPositionSeconds = node.CueTrack.StartPosition.TotalSeconds,
+                EndPositionSeconds = node.CueTrack.EndPosition.TotalSeconds,
+                CueFilePath = node.CueTrack.CueFilePath
+            };
+        }
+
         foreach (var child in node.Children)
         {
             cached.Children.Add(ConvertTreeToCache(child));
@@ -784,6 +992,7 @@ public class LibraryService
 
         return cached;
     }
+
 }
 
 public class LibraryItem

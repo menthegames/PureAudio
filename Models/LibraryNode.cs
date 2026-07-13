@@ -15,7 +15,15 @@ public class LibraryNode : INotifyPropertyChanged
     public string FullPath { get; set; } = "";
     public bool IsFolder { get; set; }
     public AudioFile? AudioFile { get; set; }
+    
+    /// <summary>
+    /// If this node represents a CUE sheet track, contains the CUE track metadata
+    /// (start/end positions within the physical audio file).
+    /// </summary>
+    public CueTrack? CueTrack { get; set; }
+    
     public ObservableCollection<LibraryNode> Children { get; set; } = new();
+
 
     /// <summary>
     /// Whether the node is expanded in the TreeView.

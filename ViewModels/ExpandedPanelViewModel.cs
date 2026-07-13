@@ -52,6 +52,7 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         LoadPlaylistCommand = new RelayCommand(_ => LoadPlaylist());
         RenamePlaylistCommand = new RelayCommand(_ => RenamePlaylist());
         DeletePlaylistCommand = new RelayCommand(_ => DeletePlaylist());
+        ImportPlaylistCommand = new RelayCommand(_ => ImportPlaylist());
 
 
         // Sync playlist selection with currently playing track
@@ -241,6 +242,7 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
     public ICommand LoadPlaylistCommand { get; }
     public ICommand RenamePlaylistCommand { get; }
     public ICommand DeletePlaylistCommand { get; }
+    public ICommand ImportPlaylistCommand { get; }
 
     // Button text for named playlist controls
     public string SelectPlaylistText => "Sel";
@@ -248,6 +250,7 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
     public string LoadPlaylistText => "Load";
     public string RenamePlaylistText => "Rename";
     public string DeletePlaylistText => "Del";
+    public string ImportPlaylistText => "Import";
 
 
     private void AddHiresSource()
@@ -309,10 +312,32 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         {
             if (child.IsFolder)
             {
-                AddFolderToPlaylist(child);
+                // If this folder is a CUE album group (has CueTrack children),
+                // add its children as CUE tracks
+                bool isCueAlbum = child.Children.Any(c => c.CueTrack != null);
+                if (isCueAlbum)
+                {
+                    foreach (var cueChild in child.Children)
+                    {
+                        if (cueChild.AudioFile != null && cueChild.CueTrack != null)
+                        {
+                            _playlistService.Add(cueChild.AudioFile, cueChild.CueTrack);
+                        }
+                    }
+                }
+                else
+                {
+                    AddFolderToPlaylist(child);
+                }
+            }
+            else if (child.CueTrack != null && child.AudioFile != null)
+            {
+                // Direct CUE track leaf node (not inside a CUE album folder)
+                _playlistService.Add(child.AudioFile, child.CueTrack);
             }
             else if (child.AudioFile != null)
             {
+                // Regular audio file
                 _playlistService.Add(child.AudioFile);
             }
         }
@@ -585,6 +610,133 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
         {
             System.Diagnostics.Debug.WriteLine($"DeletePlaylist error: {ex}");
         }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  Import External Playlists (m3u / pls)
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Import an external playlist file (.m3u, .m3u8, .pls) and add its tracks
+    /// to the current playlist.
+    /// </summary>
+    private void ImportPlaylist()
+    {
+        try
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Import Playlist",
+                Filter = "Playlist files (*.m3u;*.m3u8;*.pls)|*.m3u;*.m3u8;*.pls|All files (*.*)|*.*",
+                Multiselect = false
+            };
+
+            if (dialog.ShowDialog() != true) return;
+
+            var filePath = dialog.FileName;
+            var extension = Path.GetExtension(filePath).ToLowerInvariant();
+            var importedFiles = new List<string>();
+
+            if (extension == ".pls")
+            {
+                importedFiles = ParsePls(filePath);
+            }
+            else // .m3u or .m3u8
+            {
+                importedFiles = ParseM3u(filePath);
+            }
+
+            if (importedFiles.Count == 0)
+            {
+                MessageBox.Show("No valid audio files found in the playlist.",
+                    "Import Playlist", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // Add found files to the playlist
+            int addedCount = 0;
+            foreach (var path in importedFiles)
+            {
+                if (File.Exists(path))
+                {
+                    var audioFile = MetadataService.ReadMetadata(path);
+                    _playlistService.Add(audioFile);
+                    addedCount++;
+                }
+            }
+
+            OnPropertyChanged(nameof(PlaylistItems));
+
+            MessageBox.Show($"Imported {addedCount} of {importedFiles.Count} tracks.",
+                "Import Playlist", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"ImportPlaylist error: {ex}");
+            MessageBox.Show($"Error importing playlist: {ex.Message}",
+                "Import Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>
+    /// Parse an M3U/M3U8 file. Returns a list of file paths.
+    /// Ignores empty lines and lines starting with '#'.
+    /// </summary>
+    private static List<string> ParseM3u(string filePath)
+    {
+        var files = new List<string>();
+        var baseDir = Path.GetDirectoryName(filePath) ?? "";
+
+        foreach (var line in File.ReadAllLines(filePath))
+        {
+            var trimmed = line.Trim();
+            if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("#"))
+                continue;
+
+            // Resolve relative paths against the playlist file's directory
+            var fullPath = Path.IsPathRooted(trimmed)
+                ? trimmed
+                : Path.GetFullPath(Path.Combine(baseDir, trimmed));
+
+            files.Add(fullPath);
+        }
+
+        return files;
+    }
+
+    /// <summary>
+    /// Parse a PLS file. Returns a list of file paths.
+    /// Extracts paths from File1=..., File2=..., etc. entries.
+    /// </summary>
+    private static List<string> ParsePls(string filePath)
+    {
+        var files = new List<string>();
+        var baseDir = Path.GetDirectoryName(filePath) ?? "";
+
+        foreach (var line in File.ReadAllLines(filePath))
+        {
+            var trimmed = line.Trim();
+            if (string.IsNullOrEmpty(trimmed))
+                continue;
+
+            // Match lines like "File1=C:\path\to\file.flac" or "File1=relative\path.mp3"
+            if (trimmed.StartsWith("File", StringComparison.OrdinalIgnoreCase))
+            {
+                var eqIndex = trimmed.IndexOf('=');
+                if (eqIndex < 0) continue;
+
+                var value = trimmed.Substring(eqIndex + 1).Trim();
+                if (string.IsNullOrEmpty(value)) continue;
+
+                var fullPath = Path.IsPathRooted(value)
+                    ? value
+                    : Path.GetFullPath(Path.Combine(baseDir, value));
+
+                files.Add(fullPath);
+            }
+        }
+
+        return files;
     }
 
 

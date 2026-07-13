@@ -8,7 +8,7 @@ namespace PureAudio.Models;
 /// </summary>
 public class LibraryCacheData
 {
-    public string Version { get; set; } = "1.0";
+    public string Version { get; set; } = "1.1";
     public DateTime LastUpdated { get; set; }
     public List<CachedFileEntry> Files { get; set; } = new();
     public List<CachedTreeNode> Tree { get; set; } = new();
@@ -46,4 +46,27 @@ public class CachedTreeNode
     /// Null for folder nodes.
     /// </summary>
     public string? FilePath { get; set; }
+
+    /// <summary>
+    /// For CUE sheet track nodes: serialized CueTrack data.
+    /// Null for regular file nodes and folder nodes.
+    /// </summary>
+    public CachedCueTrack? CueTrack { get; set; }
 }
+
+/// <summary>
+/// Serializable version of CueTrack for cache persistence.
+/// </summary>
+public class CachedCueTrack
+{
+    public string FilePath { get; set; } = "";
+    public string Artist { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Album { get; set; } = "";
+    public int TrackNumber { get; set; }
+    public double StartPositionSeconds { get; set; }
+    public double EndPositionSeconds { get; set; }
+    public string CueFilePath { get; set; } = "";
+}
+
+
