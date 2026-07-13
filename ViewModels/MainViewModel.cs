@@ -15,6 +15,7 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly LibraryService _libraryService;
     private readonly FftService _fftService;
     private readonly SettingsService _settingsService;
+    private readonly StatusDisplayController _statusController;
 
     private AudioFile? _currentTrack;
     private TimeSpan _elapsed;
@@ -25,7 +26,6 @@ public class MainViewModel : INotifyPropertyChanged
     private bool _isExpanded;
     private double _windowHeight = 220;
     private bool _isHiresMode;
-    private BitPerfectStatus _bitPerfectStatus = BitPerfectStatus.Off;
     private float[] _fftData = new float[48];
     private string _marqueeText = "";
     private string _marqueeDisplayText = "";
@@ -56,6 +56,7 @@ public class MainViewModel : INotifyPropertyChanged
         _libraryService = libraryService;
         _fftService = fftService;
         _settingsService = settingsService;
+        _statusController = new StatusDisplayController(audioService);
         ExpandedPanel = expandedPanel;
 
         // Wire up the toast callback so ExpandedPanelViewModel can show toasts
@@ -148,14 +149,8 @@ public class MainViewModel : INotifyPropertyChanged
             _bitPerfectMode = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(BitPerfectButtonText));
-            OnPropertyChanged(nameof(BitPerfectButtonColor));
-            OnPropertyChanged(nameof(BitPerfectBorderColor));
-            OnPropertyChanged(nameof(IsVolumeActive));
-            OnPropertyChanged(nameof(VolumeTextColor));
-            OnPropertyChanged(nameof(BitPerfectIndicatorColor));
-            OnPropertyChanged(nameof(IsBitPerfectActive));
-            OnPropertyChanged(nameof(BitDepthColor));
-            OnPropertyChanged(nameof(SampleRateColor));
+            // Delegate indicator updates to the controller
+            RefreshIndicators();
         }
     }
 
@@ -184,84 +179,36 @@ public class MainViewModel : INotifyPropertyChanged
     /// </summary>
     public string BitPerfectButtonText => "Bit Perfect";
 
-    /// <summary>
-    /// Color for the Bit Perfect button text — gold when active, gray when inactive.
-    /// </summary>
-    public string BitPerfectButtonColor => _bitPerfectMode ? "#C9A84C" : "#555555";
+    // ════════════════════════════════════════════════════════════════
+    //  Status indicator properties — delegated to StatusDisplayController
+    // ════════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// Color for the Bit Perfect button border — gold when active, gray when inactive.
-    /// </summary>
-    public string BitPerfectBorderColor => _bitPerfectMode ? "#C9A84C" : "#4A4A4A";
-
-    /// <summary>
-    /// Bit depth text (e.g. "24 bit", "16 bit"). Empty when no track is playing.
-    /// </summary>
-    public string BitDepthText
-    {
-        get
-        {
-            int bd = _audioService.CurrentBitDepth;
-            return bd > 0 ? $"{bd} bit" : "";
-        }
-    }
-
-    /// <summary>
-    /// Sample rate text (e.g. "96 kHz", "44.1 kHz"). Empty when no track is playing.
-    /// Converts raw Hz to kHz with one decimal place for readability.
-    /// </summary>
-    public string SampleRateText
-    {
-        get
-        {
-            int sr = _audioService.CurrentSampleRate;
-            if (sr <= 0) return "";
-            double khz = sr / 1000.0;
-            // Show one decimal only if it's not a whole number (e.g. 44.1, but 96)
-            return khz == (int)khz ? $"{(int)khz} kHz" : $"{khz:F1} kHz";
-        }
-    }
-
-    /// <summary>
-    /// Full info string for tooltip (e.g. "24 bit / 96 kHz").
-    /// </summary>
-    public string BitPerfectInfoText
-    {
-        get
-        {
-            int sr = _audioService.CurrentSampleRate;
-            int bd = _audioService.CurrentBitDepth;
-            if (sr > 0 && bd > 0)
-            {
-                double khz = sr / 1000.0;
-                string srText = khz == (int)khz ? $"{(int)khz}" : $"{khz:F1}";
-                return $"{bd} bit / {srText} kHz";
-            }
-            return "";
-        }
-    }
-
-    /// <summary>
-    /// Whether bit-perfect indicators should be gold (active).
-    /// True when Bit Perfect mode is ON and a track is playing OR paused.
-    /// The indicator should NOT turn off during pause — only on Stop.
-    /// </summary>
-    public bool IsBitPerfectActive => _bitPerfectMode && (_isPlaying || _audioService.IsPaused) && _audioService.CurrentSampleRate > 0;
-
-    /// <summary>
-    /// Color for bit depth text — bright gold when bit-perfect active, gray when inactive.
-    /// </summary>
-    public string BitDepthColor => IsBitPerfectActive ? "#C9A84C" : "#555555";
-
-    /// <summary>
-    /// Color for sample rate text — medium gold when bit-perfect active, gray when inactive.
-    /// </summary>
-    public string SampleRateColor => IsBitPerfectActive ? "#A88A3E" : "#555555";
-
-    /// <summary>
-    /// Color for the Bit Perfect indicator badge — gold when active, gray when inactive.
-    /// </summary>
-    public string BitPerfectIndicatorColor => IsBitPerfectActive ? "#C9A84C" : "#555555";
+    public string BitPerfectButtonColor => _statusController.BitPerfectButtonColor;
+    public string BitPerfectBorderColor => _statusController.BitPerfectBorderColor;
+    public string BitDepthText => _statusController.BitDepthText;
+    public string SampleRateText => _statusController.SampleRateText;
+    public string BitPerfectInfoText => _statusController.BitPerfectInfoText;
+    public bool IsBitPerfectActive => _statusController.IsBitPerfectActive;
+    public string BitDepthColor => _statusController.BitDepthColor;
+    public string SampleRateColor => _statusController.SampleRateColor;
+    public string BitPerfectIndicatorColor => _statusController.BitPerfectIndicatorColor;
+    public string PlayIndicatorColor => _statusController.PlayIndicatorColor;
+    public string PauseIndicatorColor => _statusController.PauseIndicatorColor;
+    public string StopIndicatorColor => _statusController.StopIndicatorColor;
+    public string HiresIndicatorColor => _statusController.HiresIndicatorColor;
+    public string Mp3IndicatorColor => _statusController.Mp3IndicatorColor;
+    public bool IsVolumeActive => _statusController.IsVolumeActive;
+    public string VolumeTextColor => _statusController.VolumeTextColor;
+    public string SourceFormatText => _statusController.SourceFormatText;
+    public string SourceIndicatorColor => _statusController.SourceIndicatorColor;
+    public string DacCapabilitiesText => _statusController.DacCapabilitiesText;
+    public string BitPerfectStatusText => _statusController.BitPerfectStatusText;
+    public string BitPerfectStatusColor => _statusController.BitPerfectStatusColor;
+    public string StatusLabelText => _statusController.StatusLabelText;
+    public string StatusLabelColor => _statusController.StatusLabelColor;
+    public string DeviceMaxSampleRateText => _statusController.DeviceMaxSampleRateText;
+    public string DeviceMaxBitDepthText => _statusController.DeviceMaxBitDepthText;
+    public string DeviceNameText => _statusController.DeviceNameText;
 
     public string PlayPauseIcon => _isPlaying ? "❚❚" : "►";
     public string StatusText
@@ -269,15 +216,6 @@ public class MainViewModel : INotifyPropertyChanged
         get => _statusText;
         set { _statusText = value; OnPropertyChanged(); }
     }
-
-    // Play/Pause/Stop indicator colors — gold accent (#C9A84C) when active
-    public string PlayIndicatorColor => _isPlaying ? "#C9A84C" : "#555555";
-    public string PauseIndicatorColor => _audioService.IsPaused ? "#C9A84C" : "#555555";
-    public string StopIndicatorColor => (!_isPlaying && !_audioService.IsPaused) ? "#C9A84C" : "#555555";
-
-    // Hires/MP3 indicator colors — gold accent when active
-    public string HiresIndicatorColor => _isHiresMode ? "#C9A84C" : "#555555";
-    public string Mp3IndicatorColor => !_isHiresMode ? "#C9A84C" : "#555555";
 
     public string LibraryModeText => _isHiresMode ? "Lossless" : "Compressed";
     public string AddSourceText => "Add Source";
@@ -330,18 +268,6 @@ public class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>
-    /// Volume slider is only active in Normal (Shared) mode.
-    /// In Bit Perfect mode, volume is locked at 100% (no DSP).
-    /// </summary>
-    public bool IsVolumeActive => !_bitPerfectMode;
-
-    /// <summary>
-    /// Volume label color — gold when volume is adjustable (Normal mode),
-    /// gray when locked (Bit Perfect mode).
-    /// </summary>
-    public string VolumeTextColor => _bitPerfectMode ? "#555555" : "#C9A84C";
-
     // Expanded Panel ViewModel
     public ExpandedPanelViewModel ExpandedPanel { get; }
 
@@ -356,6 +282,47 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand AddSourceCommand { get; }
     public ICommand ShowHelpCommand { get; }
     public ICommand SeekCommand { get; }
+
+    /// <summary>
+    /// Refresh all indicator properties by delegating to the StatusDisplayController.
+    /// </summary>
+    private void RefreshIndicators()
+    {
+        _statusController.UpdateAllIndicators(
+            _bitPerfectMode,
+            _isPlaying,
+            _audioService.IsPaused,
+            _isHiresMode,
+            _audioService.CurrentBitPerfectStatus);
+
+        // Notify the UI that all wrapper properties have changed
+        OnPropertyChanged(nameof(BitPerfectButtonColor));
+        OnPropertyChanged(nameof(BitPerfectBorderColor));
+        OnPropertyChanged(nameof(BitDepthText));
+        OnPropertyChanged(nameof(SampleRateText));
+        OnPropertyChanged(nameof(BitPerfectInfoText));
+        OnPropertyChanged(nameof(IsBitPerfectActive));
+        OnPropertyChanged(nameof(BitDepthColor));
+        OnPropertyChanged(nameof(SampleRateColor));
+        OnPropertyChanged(nameof(BitPerfectIndicatorColor));
+        OnPropertyChanged(nameof(PlayIndicatorColor));
+        OnPropertyChanged(nameof(PauseIndicatorColor));
+        OnPropertyChanged(nameof(StopIndicatorColor));
+        OnPropertyChanged(nameof(HiresIndicatorColor));
+        OnPropertyChanged(nameof(Mp3IndicatorColor));
+        OnPropertyChanged(nameof(IsVolumeActive));
+        OnPropertyChanged(nameof(VolumeTextColor));
+        OnPropertyChanged(nameof(SourceFormatText));
+        OnPropertyChanged(nameof(SourceIndicatorColor));
+        OnPropertyChanged(nameof(DacCapabilitiesText));
+        OnPropertyChanged(nameof(BitPerfectStatusText));
+        OnPropertyChanged(nameof(BitPerfectStatusColor));
+        OnPropertyChanged(nameof(StatusLabelText));
+        OnPropertyChanged(nameof(StatusLabelColor));
+        OnPropertyChanged(nameof(DeviceMaxSampleRateText));
+        OnPropertyChanged(nameof(DeviceMaxBitDepthText));
+        OnPropertyChanged(nameof(DeviceNameText));
+    }
 
     private void PlayPause()
     {
@@ -441,9 +408,8 @@ public class MainViewModel : INotifyPropertyChanged
     {
         IsHiresMode = !_isHiresMode;
         ExpandedPanel.IsHiresView = _isHiresMode;
-        OnPropertyChanged(nameof(HiresIndicatorColor));
-        OnPropertyChanged(nameof(Mp3IndicatorColor));
         OnPropertyChanged(nameof(LibraryModeText));
+        RefreshIndicators();
         _settingsService.Update(s => s.IsHiresMode = _isHiresMode);
     }
 
@@ -485,23 +451,7 @@ public class MainViewModel : INotifyPropertyChanged
         StatusText = "Playing";
         OnPropertyChanged(nameof(PlayPauseIcon));
         OnPropertyChanged(nameof(CoverPath));
-        OnPropertyChanged(nameof(BitPerfectInfoText));
-        OnPropertyChanged(nameof(BitDepthText));
-        OnPropertyChanged(nameof(SampleRateText));
-        OnPropertyChanged(nameof(IsBitPerfectActive));
-        OnPropertyChanged(nameof(BitDepthColor));
-        OnPropertyChanged(nameof(SampleRateColor));
-        OnPropertyChanged(nameof(BitPerfectIndicatorColor));
-        OnPropertyChanged(nameof(BitPerfectButtonColor));
-        OnPropertyChanged(nameof(BitPerfectBorderColor));
-        OnPropertyChanged(nameof(DeviceMaxSampleRateText));
-        OnPropertyChanged(nameof(DeviceMaxBitDepthText));
-        OnPropertyChanged(nameof(DeviceNameText));
-        OnPropertyChanged(nameof(SourceFormatText));
-        OnPropertyChanged(nameof(SourceIndicatorColor));
-        OnPropertyChanged(nameof(DacCapabilitiesText));
-        OnPropertyChanged(nameof(StatusLabelText));
-        OnPropertyChanged(nameof(StatusLabelColor));
+        RefreshIndicators();
     }
 
     private void OnPlayStateChanged(bool playing)
@@ -509,20 +459,7 @@ public class MainViewModel : INotifyPropertyChanged
         IsPlaying = playing;
         StatusText = playing ? "Playing" : (_audioService.IsPaused ? "Paused" : "Stopped");
         OnPropertyChanged(nameof(PlayPauseIcon));
-        OnPropertyChanged(nameof(PlayIndicatorColor));
-        OnPropertyChanged(nameof(PauseIndicatorColor));
-        OnPropertyChanged(nameof(StopIndicatorColor));
-        OnPropertyChanged(nameof(IsBitPerfectActive));
-        OnPropertyChanged(nameof(BitDepthColor));
-        OnPropertyChanged(nameof(SampleRateColor));
-        OnPropertyChanged(nameof(BitPerfectIndicatorColor));
-        OnPropertyChanged(nameof(BitPerfectButtonColor));
-        OnPropertyChanged(nameof(BitPerfectBorderColor));
-        OnPropertyChanged(nameof(SourceFormatText));
-        OnPropertyChanged(nameof(SourceIndicatorColor));
-        OnPropertyChanged(nameof(DacCapabilitiesText));
-        OnPropertyChanged(nameof(StatusLabelText));
-        OnPropertyChanged(nameof(StatusLabelColor));
+        RefreshIndicators();
     }
 
     /// <summary>
@@ -596,196 +533,13 @@ public class MainViewModel : INotifyPropertyChanged
     /// <summary>
     /// Called when the Bit Perfect status changes (Off/Perfect/Limited).
     /// Updates the UI indicator colors and text accordingly.
-    /// Обновляет индикатор только если статус действительно изменился,
-    /// чтобы избежать лишних обновлений UI.
     /// </summary>
     private void OnBitPerfectStatusChanged(BitPerfectStatus status)
     {
-        // Обновляем индикатор только если статус действительно изменился
-        if (_bitPerfectStatus == status)
-            return;
-
-        _bitPerfectStatus = status;
         System.Windows.Application.Current.Dispatcher.Invoke(() =>
         {
-            OnPropertyChanged(nameof(BitPerfectStatusText));
-            OnPropertyChanged(nameof(BitPerfectStatusColor));
-            OnPropertyChanged(nameof(BitPerfectIndicatorColor));
-            OnPropertyChanged(nameof(IsBitPerfectActive));
-            OnPropertyChanged(nameof(BitDepthColor));
-            OnPropertyChanged(nameof(SampleRateColor));
-            OnPropertyChanged(nameof(SourceFormatText));
-            OnPropertyChanged(nameof(SourceIndicatorColor));
-            OnPropertyChanged(nameof(DacCapabilitiesText));
-            OnPropertyChanged(nameof(StatusLabelText));
-            OnPropertyChanged(nameof(StatusLabelColor));
+            RefreshIndicators();
         });
-    }
-
-    /// <summary>
-    /// Maximum sample rate supported by the audio device (e.g. "192 kHz").
-    /// </summary>
-    public string DeviceMaxSampleRateText
-    {
-        get
-        {
-            int maxSr = _audioService.DeviceCapabilities.MaxSampleRate;
-            if (maxSr <= 0) return "";
-            double khz = maxSr / 1000.0;
-            return khz == (int)khz ? $"{(int)khz} kHz" : $"{khz:F1} kHz";
-        }
-    }
-
-    /// <summary>
-    /// Maximum bit depth supported by the audio device (e.g. "32 bit").
-    /// </summary>
-    public string DeviceMaxBitDepthText
-    {
-        get
-        {
-            int maxBd = _audioService.DeviceCapabilities.MaxBitDepth;
-            return maxBd > 0 ? $"{maxBd} bit" : "";
-        }
-    }
-
-    /// <summary>
-    /// Audio device name for display.
-    /// </summary>
-    public string DeviceNameText
-    {
-        get
-        {
-            string name = _audioService.DeviceCapabilities.DeviceName;
-            return string.IsNullOrEmpty(name) ? "" : name;
-        }
-    }
-
-    /// <summary>
-    /// Source format text for the Source info row, e.g. "24 bit / 96 kHz".
-    /// Shows the current track's format. Empty when no track is playing.
-    /// </summary>
-    public string SourceFormatText
-    {
-        get
-        {
-            int sr = _audioService.CurrentSampleRate;
-            int bd = _audioService.CurrentBitDepth;
-            if (sr <= 0 || bd <= 0) return "";
-            double khz = sr / 1000.0;
-            string srText = khz == (int)khz ? $"{(int)khz}" : $"{khz:F1}";
-            return $"{bd} bit / {srText} kHz";
-        }
-    }
-
-    /// <summary>
-    /// Color for the Source status indicator dot.
-    /// Green (#4CAF50) for Perfect, Gold (#FFC107) for Limited, Gray (#555555) for Off.
-    /// Stays active during pause — only turns gray on Stop.
-    /// </summary>
-    public string SourceIndicatorColor
-    {
-        get
-        {
-            if (!_bitPerfectMode || (!_isPlaying && !_audioService.IsPaused))
-                return "#555555";
-
-            return _bitPerfectStatus switch
-            {
-                BitPerfectStatus.Perfect => "#4CAF50",
-                BitPerfectStatus.Limited => "#FFC107",
-                _ => "#555555"
-            };
-        }
-    }
-
-    /// <summary>
-    /// DAC capabilities text for the DAC info row, e.g. "16-24 bit / 44.1-48 kHz".
-    /// </summary>
-    public string DacCapabilitiesText
-    {
-        get
-        {
-            return _audioService.DeviceCapabilities.DacCapabilitiesText;
-        }
-    }
-
-    public string BitPerfectStatusText
-    {
-        get
-        {
-            if (!_bitPerfectMode || (!_isPlaying && !_audioService.IsPaused))
-                return "Bit Perfect: Off";
-
-            return _bitPerfectStatus switch
-            {
-                BitPerfectStatus.Perfect => "Bit Perfect: ✓",
-                BitPerfectStatus.Limited => "Bit Perfect: Limited",
-                _ => "Bit Perfect: Off"
-            };
-        }
-    }
-
-    /// <summary>
-    /// Color for the Bit Perfect status indicator.
-    /// Green for Perfect, yellow for Limited, gray for Off.
-    /// Stays active during pause — only turns gray on Stop.
-    /// </summary>
-    public string BitPerfectStatusColor
-    {
-        get
-        {
-            if (!_bitPerfectMode || (!_isPlaying && !_audioService.IsPaused))
-                return "#555555";
-
-            return _bitPerfectStatus switch
-            {
-                BitPerfectStatus.Perfect => "#4CAF50",  // Green
-                BitPerfectStatus.Limited => "#FFC107",  // Yellow/Amber
-                _ => "#555555"
-            };
-        }
-    }
-
-    /// <summary>
-    /// Large status label text shown in the left info area.
-    /// "Bit Perfect" when Perfect, "Hi-Q SRC" when Limited, "Standard Mode" when Off.
-    /// Stays active during pause — only reverts on Stop.
-    /// </summary>
-    public string StatusLabelText
-    {
-        get
-        {
-            if (!_bitPerfectMode || (!_isPlaying && !_audioService.IsPaused))
-                return "Standard Mode";
-
-            return _bitPerfectStatus switch
-            {
-                BitPerfectStatus.Perfect => "Bit Perfect",
-                BitPerfectStatus.Limited => "Hi-Q SRC",
-                _ => "Standard Mode"
-            };
-        }
-    }
-
-    /// <summary>
-    /// Color for the large status label.
-    /// Green (#4CAF50) for Perfect, Gold (#FFC107) for Limited, Gray (#555555) for Off.
-    /// Stays active during pause — only turns gray on Stop.
-    /// </summary>
-    public string StatusLabelColor
-    {
-        get
-        {
-            if (!_bitPerfectMode || (!_isPlaying && !_audioService.IsPaused))
-                return "#555555";
-
-            return _bitPerfectStatus switch
-            {
-                BitPerfectStatus.Perfect => "#4CAF50",
-                BitPerfectStatus.Limited => "#FFC107",
-                _ => "#555555"
-            };
-        }
     }
 
     private void UpdateMarqueeText()
@@ -1027,11 +781,7 @@ public class MainViewModel : INotifyPropertyChanged
                 _bitPerfectMode = false;
                 OnPropertyChanged(nameof(IsBitPerfectMode));
                 OnPropertyChanged(nameof(BitPerfectButtonText));
-                OnPropertyChanged(nameof(BitPerfectButtonColor));
-                OnPropertyChanged(nameof(BitPerfectBorderColor));
-                OnPropertyChanged(nameof(IsVolumeActive));
-                OnPropertyChanged(nameof(VolumeTextColor));
-                OnPropertyChanged(nameof(BitPerfectIndicatorColor));
+                RefreshIndicators();
                 _settingsService.Update(s => s.BitPerfectEnabled = false);
                 LoadingStatusText = "Bit Perfect mode unavailable, using Normal mode";
             }
