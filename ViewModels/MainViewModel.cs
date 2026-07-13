@@ -588,9 +588,15 @@ public class MainViewModel : INotifyPropertyChanged
     /// <summary>
     /// Called when the Bit Perfect status changes (Off/Perfect/Limited).
     /// Updates the UI indicator colors and text accordingly.
+    /// Обновляет индикатор только если статус действительно изменился,
+    /// чтобы избежать лишних обновлений UI.
     /// </summary>
     private void OnBitPerfectStatusChanged(BitPerfectStatus status)
     {
+        // Обновляем индикатор только если статус действительно изменился
+        if (_bitPerfectStatus == status)
+            return;
+
         _bitPerfectStatus = status;
         System.Windows.Application.Current.Dispatcher.Invoke(() =>
         {

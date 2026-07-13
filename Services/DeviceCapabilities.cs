@@ -20,9 +20,12 @@ public enum BitPerfectStatus
 /// <summary>
 /// Queries WASAPI device capabilities and determines the best format for Bit Perfect playback.
 /// 
-/// IMPORTANT: This class is completely stateless — it creates a FRESH MMDeviceEnumerator
-/// and AudioClient for EVERY operation. This avoids corrupting the AudioClient state
-/// which would prevent WasapiExclusivePlayer from initializing in Exclusive mode.
+/// IMPORTANT: This class creates a FRESH MMDeviceEnumerator and AudioClient for EVERY
+/// format check operation. This avoids corrupting the AudioClient state which would prevent
+/// WasapiExclusivePlayer from initializing in Exclusive mode.
+/// 
+/// Capabilities are cached after first probe. The cache is invalidated if the default
+/// audio device changes (detected by comparing device ID).
 /// </summary>
 public class DeviceCapabilities
 {
@@ -31,6 +34,7 @@ public class DeviceCapabilities
     private int _maxBitDepth;
     private int _maxChannels;
     private string _deviceName = "";
+    private string _cachedDeviceId = "";
 
     /// <summary>Maximum sample rate supported by this device in Exclusive mode.</summary>
     public int MaxSampleRate
@@ -82,14 +86,44 @@ public class DeviceCapabilities
 
     /// <summary>
     /// Ensures capabilities have been probed. Called lazily on first access.
+    /// If the device has changed since last probe, re-probes automatically.
     /// </summary>
     private void EnsureProbed()
     {
-        if (!_probed)
+        if (!_probed || HasDeviceChanged())
         {
             ProbeCapabilities();
             _probed = true;
         }
+    }
+
+    /// <summary>
+    /// Checks if the default audio device has changed since the last probe
+    /// by comparing the device ID.
+    /// </summary>
+    private bool HasDeviceChanged()
+    {
+        try
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            string currentId = device.ID ?? "";
+            return currentId != _cachedDeviceId;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Forces a re-probe of device capabilities. Call this when the audio device
+    /// may have changed (e.g., USB DAC disconnected/reconnected).
+    /// </summary>
+    public void InvalidateCache()
+    {
+        _probed = false;
+        _cachedDeviceId = "";
     }
 
     /// <summary>
@@ -109,11 +143,12 @@ public class DeviceCapabilities
         _maxBitDepth = 0;
         _maxChannels = 0;
 
-        // Get device name from a fresh enumerator
+        // Get device name and ID from a fresh enumerator
         using (var enumForName = new MMDeviceEnumerator())
         using (var devForName = enumForName.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia))
         {
             _deviceName = devForName.FriendlyName;
+            _cachedDeviceId = devForName.ID ?? "";
         }
 
         foreach (var sr in sampleRates)

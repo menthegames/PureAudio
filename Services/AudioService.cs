@@ -525,9 +525,26 @@ public class AudioService : IDisposable
     /// Uses the SOURCE format (before resampling) to determine the true Bit Perfect status.
     /// If resampler is active, the output format will always match the DAC, so we must
     /// check the original source format against the DAC capabilities.
+    /// 
+    /// Защита от гонок: проверяет согласованность _bitPerfectMode и _isPlaying.
+    /// Если режим Bit Perfect выключен, но _isPlaying всё ещё true (или наоборот),
+    /// статус принудительно устанавливается в Off.
     /// </summary>
     private void UpdateBitPerfectStatus()
     {
+        // Защита от гонок: проверяем согласованность флагов
+        bool consistent = _bitPerfectMode == (_outputDevice is WasapiExclusivePlayer);
+        if (!consistent)
+        {
+            Logger.Log($"UpdateBitPerfectStatus: race condition detected — bitPerfectMode={_bitPerfectMode}, outputDevice is WasapiExclusivePlayer={_outputDevice is WasapiExclusivePlayer}. Forcing Off.");
+            if (_currentBitPerfectStatus != BitPerfectStatus.Off)
+            {
+                _currentBitPerfectStatus = BitPerfectStatus.Off;
+                BitPerfectStatusChanged?.Invoke(BitPerfectStatus.Off);
+            }
+            return;
+        }
+
         if (!_bitPerfectMode || !_isPlaying)
         {
             if (_currentBitPerfectStatus != BitPerfectStatus.Off)
@@ -771,14 +788,67 @@ public class AudioService : IDisposable
             PlayStateChanged?.Invoke(true);
 
             // Update Bit Perfect status after track starts
-            UpdateBitPerfectStatus();
+            // Небольшая задержка (80 мс) чтобы дать время на полную инициализацию
+            // аудио-устройства перед проверкой статуса Bit Perfect.
+            _ = DelayedBitPerfectStatusUpdate();
 
             StartPositionTracking();
         }
         catch (Exception ex)
         {
-            Logger.Log($"Playback error (playbackId={currentPlaybackId}): {ex.GetType().Name}: {ex.Message}");
-            Logger.Log($"Stack: {ex.StackTrace}");
+            Logger.Log($"PlayInternal: ERROR: {ex.GetType().Name}: {ex.Message}");
+            Logger.Log($"PlayInternal: stack trace: {ex.StackTrace}");
+            
+            // Fallback to Shared mode if anything fails
+            try
+            {
+                StopInternal();
+                
+                _bitPerfectMode = false;
+                BitPerfectModeChanged?.Invoke(false);
+                
+                var fallbackItem = _playlistService.CurrentItem;
+                if (fallbackItem != null)
+                {
+                    _audioFileReader = new AudioFileReader(fallbackItem.AudioFile.FilePath);
+                    _audioFileReader.Volume = _volume;
+                    
+                    var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
+                    _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 150);
+                    _outputDevice.PlaybackStopped += OnPlaybackStopped;
+                    _outputDevice.Init(fftProvider);
+                    _outputDevice.Play();
+                    
+                    _isPlaying = true;
+                    _isPaused = false;
+                    TrackChanged?.Invoke(fallbackItem.AudioFile);
+                    DurationChanged?.Invoke(Duration);
+                    BitrateChanged?.Invoke(Bitrate);
+                    PlayStateChanged?.Invoke(true);
+                    StartPositionTracking();
+                }
+            }
+            catch (Exception fallbackEx)
+            {
+                Logger.Log($"PlayInternal: Fallback also failed: {fallbackEx.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Обновляет статус Bit Perfect с небольшой задержкой после старта трека,
+    /// чтобы дать время на полную инициализацию аудио-устройства.
+    /// </summary>
+    private async Task DelayedBitPerfectStatusUpdate()
+    {
+        try
+        {
+            await Task.Delay(80);
+            UpdateBitPerfectStatus();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"DelayedBitPerfectStatusUpdate: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
