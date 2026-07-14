@@ -5,6 +5,21 @@ using PureAudio.Services;
 namespace PureAudio.ViewModels;
 
 /// <summary>
+/// Static constants for UI colors used throughout the application.
+/// Centralizes color definitions to avoid magic strings.
+/// </summary>
+public static class UIColors
+{
+    public const string AccentGold = "#C9A84C";
+    public const string DimmedGold = "#A88A3E";
+    public const string InactiveGray = "#555555";
+    public const string BorderGray = "#4A4A4A";
+    public const string PerfectGreen = "#4CAF50";
+    public const string LimitedAmber = "#FFC107";
+}
+
+
+/// <summary>
 /// Manages all UI indicator properties for the main window.
 /// Encapsulates the logic for colors, texts, and visibility of status indicators
 /// based on the current audio state (Bit Perfect mode, play state, device capabilities).
@@ -78,12 +93,12 @@ public class StatusDisplayController : INotifyPropertyChanged
     /// <summary>
     /// Color for the Bit Perfect button text — gold when active, gray when inactive.
     /// </summary>
-    public string BitPerfectButtonColor => _bitPerfectMode ? "#C9A84C" : "#555555";
+    public string BitPerfectButtonColor => _bitPerfectMode ? UIColors.AccentGold : UIColors.InactiveGray;
 
     /// <summary>
     /// Color for the Bit Perfect button border — gold when active, gray when inactive.
     /// </summary>
-    public string BitPerfectBorderColor => _bitPerfectMode ? "#C9A84C" : "#4A4A4A";
+    public string BitPerfectBorderColor => _bitPerfectMode ? UIColors.AccentGold : UIColors.BorderGray;
 
     // ════════════════════════════════════════════════════════════════
     //  Format Display (Bit Depth / Sample Rate)
@@ -145,17 +160,17 @@ public class StatusDisplayController : INotifyPropertyChanged
     /// <summary>
     /// Color for bit depth text — bright gold when bit-perfect active, gray when inactive.
     /// </summary>
-    public string BitDepthColor => IsBitPerfectActive ? "#C9A84C" : "#555555";
+    public string BitDepthColor => IsBitPerfectActive ? UIColors.AccentGold : UIColors.InactiveGray;
 
     /// <summary>
     /// Color for sample rate text — medium gold when bit-perfect active, gray when inactive.
     /// </summary>
-    public string SampleRateColor => IsBitPerfectActive ? "#A88A3E" : "#555555";
+    public string SampleRateColor => IsBitPerfectActive ? UIColors.DimmedGold : UIColors.InactiveGray;
 
     /// <summary>
     /// Color for the Bit Perfect indicator badge — gold when active, gray when inactive.
     /// </summary>
-    public string BitPerfectIndicatorColor => IsBitPerfectActive ? "#C9A84C" : "#555555";
+    public string BitPerfectIndicatorColor => IsBitPerfectActive ? UIColors.AccentGold : UIColors.InactiveGray;
 
     // ════════════════════════════════════════════════════════════════
     //  Play/Pause/Stop Indicator Colors
@@ -164,17 +179,17 @@ public class StatusDisplayController : INotifyPropertyChanged
     /// <summary>
     /// Play indicator color — gold accent when playing.
     /// </summary>
-    public string PlayIndicatorColor => _isPlaying ? "#C9A84C" : "#555555";
+    public string PlayIndicatorColor => _isPlaying ? UIColors.AccentGold : UIColors.InactiveGray;
 
     /// <summary>
     /// Pause indicator color — gold accent when paused.
     /// </summary>
-    public string PauseIndicatorColor => _isPaused ? "#C9A84C" : "#555555";
+    public string PauseIndicatorColor => _isPaused ? UIColors.AccentGold : UIColors.InactiveGray;
 
     /// <summary>
     /// Stop indicator color — gold accent when stopped.
     /// </summary>
-    public string StopIndicatorColor => (!_isPlaying && !_isPaused) ? "#C9A84C" : "#555555";
+    public string StopIndicatorColor => (!_isPlaying && !_isPaused) ? UIColors.AccentGold : UIColors.InactiveGray;
 
     // ════════════════════════════════════════════════════════════════
     //  Hires/MP3 Indicator Colors
@@ -183,12 +198,12 @@ public class StatusDisplayController : INotifyPropertyChanged
     /// <summary>
     /// Hires (Lossless) indicator color — gold accent when active.
     /// </summary>
-    public string HiresIndicatorColor => _isHiresMode ? "#C9A84C" : "#555555";
+    public string HiresIndicatorColor => _isHiresMode ? UIColors.AccentGold : UIColors.InactiveGray;
 
     /// <summary>
     /// MP3 (Compressed) indicator color — gold accent when active.
     /// </summary>
-    public string Mp3IndicatorColor => !_isHiresMode ? "#C9A84C" : "#555555";
+    public string Mp3IndicatorColor => !_isHiresMode ? UIColors.AccentGold : UIColors.InactiveGray;
 
     // ════════════════════════════════════════════════════════════════
     //  Volume Indicators
@@ -204,7 +219,7 @@ public class StatusDisplayController : INotifyPropertyChanged
     /// Volume label color — gold when volume is adjustable (Normal mode),
     /// gray when locked (Bit Perfect mode).
     /// </summary>
-    public string VolumeTextColor => _bitPerfectMode ? "#555555" : "#C9A84C";
+    public string VolumeTextColor => _bitPerfectMode ? UIColors.InactiveGray : UIColors.AccentGold;
 
     // ════════════════════════════════════════════════════════════════
     //  Source / DAC Info
@@ -237,13 +252,13 @@ public class StatusDisplayController : INotifyPropertyChanged
         get
         {
             if (!_bitPerfectMode || (!_isPlaying && !_isPaused))
-                return "#555555";
+                return UIColors.InactiveGray;
 
             return _bitPerfectStatus switch
             {
-                BitPerfectStatus.Perfect => "#4CAF50",
-                BitPerfectStatus.Limited => "#FFC107",
-                _ => "#555555"
+                BitPerfectStatus.Perfect => UIColors.PerfectGreen,
+                BitPerfectStatus.Limited => UIColors.LimitedAmber,
+                _ => UIColors.InactiveGray
             };
         }
     }
@@ -292,13 +307,13 @@ public class StatusDisplayController : INotifyPropertyChanged
         get
         {
             if (!_bitPerfectMode || (!_isPlaying && !_isPaused))
-                return "#555555";
+                return UIColors.InactiveGray;
 
             return _bitPerfectStatus switch
             {
-                BitPerfectStatus.Perfect => "#4CAF50",  // Green
-                BitPerfectStatus.Limited => "#FFC107",  // Yellow/Amber
-                _ => "#555555"
+                BitPerfectStatus.Perfect => UIColors.PerfectGreen,
+                BitPerfectStatus.Limited => UIColors.LimitedAmber,
+                _ => UIColors.InactiveGray
             };
         }
     }
@@ -338,13 +353,13 @@ public class StatusDisplayController : INotifyPropertyChanged
         get
         {
             if (!_bitPerfectMode || (!_isPlaying && !_isPaused))
-                return "#555555";
+                return UIColors.InactiveGray;
 
             return _bitPerfectStatus switch
             {
-                BitPerfectStatus.Perfect => "#4CAF50",
-                BitPerfectStatus.Limited => "#FFC107",
-                _ => "#555555"
+                BitPerfectStatus.Perfect => UIColors.PerfectGreen,
+                BitPerfectStatus.Limited => UIColors.LimitedAmber,
+                _ => UIColors.InactiveGray
             };
         }
     }

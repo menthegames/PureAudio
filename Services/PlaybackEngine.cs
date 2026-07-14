@@ -17,6 +17,12 @@ namespace PureAudio.Services;
 /// </summary>
 internal class PlaybackEngine : IDisposable
 {
+    // ── Constants ──
+    private const int DefaultLatencyMs = 100;
+    private const int ModeSwitchDelayMs = 150;
+    private const int BitPerfectStatusDelayMs = 80;
+    private const int PositionTrackingIntervalMs = 250;
+
     private IWavePlayer? _outputDevice;
     private AudioFileReader? _audioFileReader;
     private BitPerfectWaveProvider? _bitPerfectProvider;
@@ -143,7 +149,7 @@ internal class PlaybackEngine : IDisposable
             StopInternal();
 
             if (enable)
-                await Task.Delay(150);
+                await Task.Delay(ModeSwitchDelayMs);
 
             PlayInternal(position);
         }
@@ -209,7 +215,7 @@ internal class PlaybackEngine : IDisposable
     {
         try
         {
-            await Task.Delay(80);
+            await Task.Delay(BitPerfectStatusDelayMs);
             UpdateBitPerfectStatus();
         }
         catch (Exception ex)
@@ -450,7 +456,7 @@ internal class PlaybackEngine : IDisposable
     {
         if (isShared)
         {
-            _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
+            _outputDevice = new WasapiOut(AudioClientShareMode.Shared, DefaultLatencyMs);
             _outputDevice.PlaybackStopped += OnPlaybackStopped;
             _outputDevice.Init(provider);
             Logger.Log($"StartPlayback (Shared): WasapiOut initialized, calling Play()");
@@ -499,7 +505,7 @@ internal class PlaybackEngine : IDisposable
         }
 
         var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
-        _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
+        _outputDevice = new WasapiOut(AudioClientShareMode.Shared, DefaultLatencyMs);
         _outputDevice.PlaybackStopped += OnPlaybackStopped;
         _outputDevice.Init(fftProvider);
         _outputDevice.Play();
@@ -521,7 +527,7 @@ internal class PlaybackEngine : IDisposable
             Logger.Log("CreateWasapiOutput: creating WasapiExclusivePlayer (Bit Perfect mode)");
             try
             {
-                var exclusivePlayer = new WasapiExclusivePlayer(100);
+                var exclusivePlayer = new WasapiExclusivePlayer(DefaultLatencyMs);
                 Logger.Log("CreateWasapiOutput: WasapiExclusivePlayer created successfully");
                 return exclusivePlayer;
             }
@@ -531,14 +537,14 @@ internal class PlaybackEngine : IDisposable
                 Logger.Log("CreateWasapiOutput: falling back to Shared WasapiOut");
                 _bitPerfectMode = false;
                 BitPerfectModeChanged?.Invoke(false);
-                var fallbackWasapi = new WasapiOut(AudioClientShareMode.Shared, 100);
+                var fallbackWasapi = new WasapiOut(AudioClientShareMode.Shared, DefaultLatencyMs);
                 Logger.Log("CreateWasapiOutput: Shared WasapiOut created as fallback");
                 return fallbackWasapi;
             }
         }
 
         Logger.Log("CreateWasapiOutput: creating Shared WasapiOut");
-        return new WasapiOut(AudioClientShareMode.Shared, 100);
+        return new WasapiOut(AudioClientShareMode.Shared, DefaultLatencyMs);
     }
 
     public void Pause()
@@ -779,7 +785,7 @@ internal class PlaybackEngine : IDisposable
         {
             while (!token.IsCancellationRequested)
             {
-                await Task.Delay(250, token);
+                await Task.Delay(PositionTrackingIntervalMs, token);
 
                 var currentPos = CurrentPosition;
                 PositionChanged?.Invoke(currentPos);
