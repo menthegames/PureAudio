@@ -1,28 +1,22 @@
-# PureAudio Task Progress
+# PureAudio — Рефакторинг
 
-## ✅ Completed
-- Buffer latency fix: Exclusive 200→100, Shared 150→100
+## Статус выполнения
 
-## ✅ CUE Track Support Fixes
-- [x] Add `PlayCueTrack` method to `AudioService` for proper CUE track playback
-- [x] Fix `PlayInternal` to use CUE track info (already had seek to StartPosition)
-- [x] Fix `Next()` and `Previous()` to preserve CUE context (PlayInternal reads CurrentItem.CueTrack)
-- [x] Fix `Seek()` to clamp position within CUE track bounds
-- [x] Fix `OnPlaybackStopped` to handle CUE track end properly (via StartPositionTracking)
-- [x] Verify all changes compile and are consistent
+### 🔴 Критические
+- [x] 1. Рефакторинг `PlaybackEngine.PlayInternal()` — разделение на методы
+- [x] 2. Исправление `CurrentPosition` (dead code / избыточная логика)
+- [x] 3. Устранение дублирования `UpdateBitPerfectStatus()` между `PlaybackEngine` и `AudioStateManager`
+- [x] 4. `StatusDisplayController` — константы для цветов вместо магических строк
 
-## ✅ CUE Library Scanning & Cache Fixes
-- [x] Verify CUE logic is called when adding new source (AddHiresSource → ScanFolderToTree → BuildTreeRecursive)
-- [x] Fix CUE priority: if all CUE files are invalid, fall back to adding audio files normally
-- [x] Verify CUE tracks are saved to cache (ConvertTreeToCache serializes CueTrack → CachedCueTrack)
-- [x] Verify CUE tracks are restored from cache (BuildTreeFromCache reconstructs CueTrack from CachedCueTrack)
-- [x] Add cache invalidation when CUE files are modified (CollectCueFilePaths + timestamp check in TryLoadCache)
-- [x] Add PlaylistService.Add(AudioFile, CueTrack) overload for CUE track playlist items
-- [x] Fix AddFolderToPlaylist to add CUE tracks with CueTrack context (not as plain AudioFile)
-- [x] Add cache version check (bump to "1.1") to force rebuild of old caches without CUE data
-- [x] Fix OnTrackChanged signature in MainViewModel to accept CueTrack? parameter
-- [x] Fix DoubleClickLibrary in ExpandedPanelViewModel to pass CueTrack for CUE tracks
-- [x] Fix BuildTreeFromCache: use unique key for CUE tracks to avoid collisions
-- [x] Verify build succeeds with 0 errors
-- [x] **Шаг 2:** Проверено — CUE-логика вызывается при добавлении новой папки (AddHiresSource/AddMp3Source → ScanFolderToTree → BuildTreeRecursive). Кэш инвалидируется при изменении CUE-файлов (CollectCueFilePaths + timestamp check).
-- [x] **Шаг 3:** Проверено — CueTrack сохраняются в кэш (ConvertTreeToCache → CachedCueTrack) и восстанавливаются из кэша (BuildTreeFromCache → CueTrack). Уникальный ключ для CUE-треков предотвращает коллизии.
+### 🟡 Средние
+- [x] 5. `LibraryService` — замена `ObservableCollection` на `List` в сервисе
+- [x] 6. `LibraryCacheService.BuildTreeFromCache()` — выделение методов
+- [x] 7. `PlaybackEngine.Seek()` — вынесение CUE-логики в отдельный метод
+- [x] 8. Магические числа/строки — вынесение в константы
+- [x] 9. `MetadataService` — разделение на `TagReader`, `BitDepthDetector`, `CoverArtExtractor`
+
+### 🟢 Лёгкие
+- [x] 10. `RelayCommand` — добавлена поддержка `NotifyCanExecuteChanged()`
+- [x] 11. Silent catch — заменены на логирование через `Logger.Log()`
+- [x] 12. `DeviceCapabilities.DacCapabilitiesText` — кэширование результата
+- [x] 13. `WasapiExclusivePlayer` — комментарии приведены к английскому

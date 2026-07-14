@@ -62,12 +62,6 @@ internal class PlaybackEngine : IDisposable
     {
         get
         {
-            if (_bitPerfectMode && _resampler != null)
-            {
-                if (_bitPerfectProvider != null)
-                    return _bitPerfectProvider.CurrentTime;
-                return TimeSpan.Zero;
-            }
             if (_bitPerfectMode && _bitPerfectProvider != null)
                 return _bitPerfectProvider.CurrentTime;
             return _audioFileReader?.CurrentTime ?? TimeSpan.Zero;
