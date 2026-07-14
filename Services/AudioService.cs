@@ -72,7 +72,7 @@ public class AudioService : IDisposable
         var deviceCaps = new DeviceCapabilities();
 
         _engine = new PlaybackEngine(playlistService, fftService, _fftQueue, deviceCaps);
-        _state = new AudioStateManager(_engine, deviceCaps);
+        _state = new AudioStateManager(_engine);
 
         // Wire up events from AudioStateManager to AudioService
         _state.TrackChanged += (track, cue) => TrackChanged?.Invoke(track, cue);

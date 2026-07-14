@@ -13,7 +13,6 @@ namespace PureAudio.Services;
 internal class AudioStateManager : IDisposable
 {
     private readonly PlaybackEngine _playbackEngine;
-    private readonly DeviceCapabilities _deviceCaps;
 
     // ── State properties ──
     public bool IsPlaying { get; private set; }
@@ -37,10 +36,9 @@ internal class AudioStateManager : IDisposable
     public event Action<bool>? BitPerfectModeChanged;
     public event Action<BitPerfectStatus>? BitPerfectStatusChanged;
 
-    public AudioStateManager(PlaybackEngine playbackEngine, DeviceCapabilities deviceCaps)
+    public AudioStateManager(PlaybackEngine playbackEngine)
     {
         _playbackEngine = playbackEngine;
-        _deviceCaps = deviceCaps;
 
         // Subscribe to PlaybackEngine events
         _playbackEngine.TrackChanged += OnTrackChanged;
@@ -114,46 +112,6 @@ internal class AudioStateManager : IDisposable
     {
         CurrentBitPerfectStatus = status;
         BitPerfectStatusChanged?.Invoke(status);
-    }
-
-    /// <summary>
-    /// Updates the Bit Perfect status by querying the engine's current format
-    /// and comparing it against device capabilities.
-    /// </summary>
-    public void UpdateBitPerfectStatus()
-    {
-        if (!BitPerfectMode || !IsPlaying)
-        {
-            CurrentBitPerfectStatus = BitPerfectStatus.Off;
-            BitPerfectStatusChanged?.Invoke(BitPerfectStatus.Off);
-            return;
-        }
-
-        int sr = CurrentSampleRate;
-        int bd = CurrentBitDepth;
-        int ch = 2;
-
-        var newStatus = _deviceCaps.GetBitPerfectStatus(sr, bd, ch);
-        CurrentBitPerfectStatus = newStatus;
-        BitPerfectStatusChanged?.Invoke(newStatus);
-        Logger.Log($"AudioStateManager: BitPerfectStatus={newStatus} (SR={sr}, BD={bd}, CH={ch})");
-    }
-
-    /// <summary>
-    /// Обновляет статус Bit Perfect с небольшой задержкой после старта трека,
-    /// чтобы дать время на полную инициализацию аудио-устройства.
-    /// </summary>
-    public async Task DelayedBitPerfectStatusUpdate()
-    {
-        try
-        {
-            await Task.Delay(80);
-            UpdateBitPerfectStatus();
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"AudioStateManager.DelayedBitPerfectStatusUpdate: {ex.GetType().Name}: {ex.Message}");
-        }
     }
 
     /// <summary>

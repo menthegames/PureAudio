@@ -1,5 +1,6 @@
 using System.IO;
 using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 using NAudio.CoreAudioApi;
 using PureAudio.Helpers;
 using PureAudio.Models;
@@ -38,6 +39,9 @@ internal class PlaybackEngine : IDisposable
     // CUE track support
     private CueTrack? _currentCueTrack;
     private bool _isCueTrack;
+
+    // Current Bit Perfect status for the playing track
+    private BitPerfectStatus _currentBitPerfectStatus;
 
     // ── Events ──
     public event Action<AudioFile, CueTrack?>? TrackChanged;
@@ -269,160 +273,20 @@ internal class PlaybackEngine : IDisposable
 
             if (_bitPerfectMode)
             {
-                // === BIT PERFECT PATH ===
-                _bitPerfectProvider = new BitPerfectWaveProvider(
-                    currentItem.AudioFile.FilePath, _fftService, _fftQueue);
-
-                // If this is a CUE track, seek to the start position
-                if (_isCueTrack && _currentCueTrack != null)
+                var (provider, status, fallback) = SetupBitPerfectPath(currentItem, position);
+                if (fallback)
                 {
-                    Logger.Log($"PlayInternal (Bit Perfect): seeking to CUE start position {_currentCueTrack.StartPosition}");
-                    _bitPerfectProvider.Seek(_currentCueTrack.StartPosition);
+                    FallbackToShared(currentItem, position);
+                    return;
                 }
-
-                int sourceSr = _bitPerfectProvider.WaveFormat.SampleRate;
-                int sourceBd = _bitPerfectProvider.WaveFormat.BitsPerSample;
-                int sourceCh = _bitPerfectProvider.WaveFormat.Channels;
-
-                Logger.Log($"PlayInternal (Bit Perfect): source format={sourceSr}Hz/{sourceBd}bit/{sourceCh}ch");
-
-                // Проверяем статус Bit Perfect
-                var bpStatus = _deviceCaps.GetBitPerfectStatus(sourceSr, sourceBd, sourceCh);
-                Logger.Log($"PlayInternal (Bit Perfect): status={bpStatus}");
-
-                IWaveProvider outputProvider = _bitPerfectProvider;
-
-                if (bpStatus == BitPerfectStatus.Limited)
-                {
-                    // Формат не поддерживается напрямую, ищем ближайший поддерживаемый
-                    var bestFormat = _deviceCaps.GetBestSupportedFormat(sourceSr, sourceBd, sourceCh);
-                    if (bestFormat != null)
-                    {
-                        Logger.Log($"PlayInternal (Bit Perfect): resampling from {sourceSr}/{sourceBd} to {bestFormat.SampleRate}/{bestFormat.BitsPerSample}");
-
-                        try
-                        {
-                            _resampler = new SoxResampler(_bitPerfectProvider, bestFormat!);
-                            outputProvider = _resampler;
-                            Logger.Log($"PlayInternal (Bit Perfect): SoxResampler created successfully");
-                        }
-                        catch (Exception resampleEx)
-                        {
-                            Logger.Log($"PlayInternal (Bit Perfect): SoxResampler failed: {resampleEx.Message}, falling back to Shared");
-                            _resampler = null;
-                            bpStatus = BitPerfectStatus.Off;
-                        }
-                    }
-                    else
-                    {
-                        Logger.Log($"PlayInternal (Bit Perfect): no supported format found, falling back to Shared");
-                        bpStatus = BitPerfectStatus.Off;
-                    }
-                }
-
-                if (bpStatus == BitPerfectStatus.Off)
-                {
-                    // Fallback на Shared режим
-                    _bitPerfectProvider.Dispose();
-                    _bitPerfectProvider = null;
-
-                    _audioFileReader = new AudioFileReader(currentItem.AudioFile.FilePath);
-                    _audioFileReader.Volume = _volume;
-                    if (position < _audioFileReader.TotalTime)
-                    {
-                        _audioFileReader.CurrentTime = position;
-                    }
-
-                    var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
-                    _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
-                    _outputDevice.PlaybackStopped += OnPlaybackStopped;
-                    _outputDevice.Init(fftProvider);
-
-                    // Обновляем статус на Off
-                    BitPerfectStatusChanged?.Invoke(BitPerfectStatus.Off);
-                }
-                else
-                {
-                    // Exclusive режим с конвертацией или без
-                    Logger.Log($"PlayInternal (Bit Perfect): starting Exclusive mode, bpStatus={bpStatus}, outputProvider type={outputProvider.GetType().Name}, format={outputProvider.WaveFormat.SampleRate}Hz/{outputProvider.WaveFormat.BitsPerSample}bit/{outputProvider.WaveFormat.Channels}ch");
-
-                    if (position > TimeSpan.Zero && position < _bitPerfectProvider.TotalTime)
-                    {
-                        _bitPerfectProvider.Seek(position);
-
-                        // Clear resampler internal buffers after seek to prevent stale data
-                        if (_resampler != null)
-                        {
-                            _resampler.Clear();
-                            Logger.Log("PlayInternal (Bit Perfect): cleared resampler after seek");
-                        }
-                    }
-
-                    _outputDevice = CreateWasapiOutput();
-                    _outputDevice.PlaybackStopped += OnPlaybackStopped;
-
-                    try
-                    {
-                        Logger.Log($"PlayInternal (Bit Perfect): calling _outputDevice.Init()...");
-                        _outputDevice.Init(outputProvider);
-                        BitPerfectStatusChanged?.Invoke(bpStatus);
-                        Logger.Log($"PlayInternal (Bit Perfect): Init() succeeded, device is in Exclusive mode");
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Log($"PlayInternal (Bit Perfect): Init failed: {ex.GetType().Name}: {ex.Message}. Falling back to Shared.");
-                        _outputDevice.PlaybackStopped -= OnPlaybackStopped;
-                        _outputDevice.Dispose();
-
-                        _bitPerfectProvider?.Dispose();
-                        _bitPerfectProvider = null;
-
-                        _audioFileReader = new AudioFileReader(currentItem.AudioFile.FilePath);
-                        _audioFileReader.Volume = _volume;
-                        if (position < _audioFileReader.TotalTime)
-                        {
-                            _audioFileReader.CurrentTime = position;
-                        }
-
-                        var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
-                        _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
-                        _outputDevice.PlaybackStopped += OnPlaybackStopped;
-                        _outputDevice.Init(fftProvider);
-
-                        BitPerfectStatusChanged?.Invoke(BitPerfectStatus.Off);
-                    }
-                }
-
-                _outputDevice.Play();
+                StartPlayback(provider, position, isShared: false);
+                _currentBitPerfectStatus = status;
             }
             else
             {
-                // === NORMAL (SHARED) PATH ===
-                _audioFileReader = new AudioFileReader(currentItem.AudioFile.FilePath);
-                _audioFileReader.Volume = _volume;
-
-                Logger.Log($"PlayInternal (Shared): opened file, total={_audioFileReader.TotalTime.TotalSeconds:F3}s, format={_audioFileReader.WaveFormat.SampleRate}Hz/{_audioFileReader.WaveFormat.BitsPerSample}bit/{_audioFileReader.WaveFormat.Channels}ch");
-
-                // If this is a CUE track, seek to the start position
-                if (_isCueTrack && _currentCueTrack != null)
-                {
-                    Logger.Log($"PlayInternal (Shared): seeking to CUE start position {_currentCueTrack.StartPosition}");
-                    _audioFileReader.CurrentTime = _currentCueTrack.StartPosition;
-                }
-                else if (position < _audioFileReader.TotalTime)
-                {
-                    _audioFileReader.CurrentTime = position;
-                }
-
-                var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
-
-                _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
-                _outputDevice.PlaybackStopped += OnPlaybackStopped;
-
-                _outputDevice.Init(fftProvider);
-                Logger.Log($"PlayInternal (Shared): WasapiOut initialized, calling Play()");
-                _outputDevice.Play();
-                Logger.Log($"PlayInternal (Shared): Play() called successfully");
+                var provider = SetupSharedPath(currentItem, position);
+                StartPlayback(provider, position, isShared: true);
+                _currentBitPerfectStatus = BitPerfectStatus.Off;
             }
 
             _isPlaying = true;
@@ -453,22 +317,7 @@ internal class PlaybackEngine : IDisposable
                 var fallbackItem = _playlistService.CurrentItem;
                 if (fallbackItem != null)
                 {
-                    _audioFileReader = new AudioFileReader(fallbackItem.AudioFile.FilePath);
-                    _audioFileReader.Volume = _volume;
-
-                    var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
-                    _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
-                    _outputDevice.PlaybackStopped += OnPlaybackStopped;
-                    _outputDevice.Init(fftProvider);
-                    _outputDevice.Play();
-
-                    _isPlaying = true;
-                    _isPaused = false;
-                    TrackChanged?.Invoke(fallbackItem.AudioFile, _currentCueTrack);
-                    DurationChanged?.Invoke(Duration);
-                    BitrateChanged?.Invoke(Bitrate);
-                    PlayStateChanged?.Invoke(true);
-                    StartPositionTracking();
+                    FallbackToShared(fallbackItem, position);
                 }
             }
             catch (Exception fallbackEx)
@@ -476,6 +325,193 @@ internal class PlaybackEngine : IDisposable
                 Logger.Log($"PlayInternal: Fallback also failed: {fallbackEx.Message}");
             }
         }
+    }
+
+    /// <summary>
+    /// Sets up the Bit Perfect (WASAPI Exclusive) playback path.
+    /// Creates a BitPerfectWaveProvider, checks device capabilities,
+    /// and applies resampling if the format exceeds device limits.
+    /// </summary>
+    /// <returns>
+    /// A tuple containing:
+    /// - outputProvider: the IWaveProvider to use for playback
+    /// - status: the BitPerfectStatus (Perfect, Limited, or Off)
+    /// - fallback: true if the caller should fall back to Shared mode
+    /// </returns>
+    private (IWaveProvider outputProvider, BitPerfectStatus status, bool fallback) SetupBitPerfectPath(PlaylistItem currentItem, TimeSpan position)
+    {
+        _bitPerfectProvider = new BitPerfectWaveProvider(
+            currentItem.AudioFile.FilePath, _fftService, _fftQueue);
+
+        // If this is a CUE track, seek to the start position
+        if (_isCueTrack && _currentCueTrack != null)
+        {
+            Logger.Log($"SetupBitPerfectPath: seeking to CUE start position {_currentCueTrack.StartPosition}");
+            _bitPerfectProvider.Seek(_currentCueTrack.StartPosition);
+        }
+
+        int sourceSr = _bitPerfectProvider.WaveFormat.SampleRate;
+        int sourceBd = _bitPerfectProvider.WaveFormat.BitsPerSample;
+        int sourceCh = _bitPerfectProvider.WaveFormat.Channels;
+
+        Logger.Log($"SetupBitPerfectPath: source format={sourceSr}Hz/{sourceBd}bit/{sourceCh}ch");
+
+        // Проверяем статус Bit Perfect
+        var bpStatus = _deviceCaps.GetBitPerfectStatus(sourceSr, sourceBd, sourceCh);
+        Logger.Log($"SetupBitPerfectPath: status={bpStatus}");
+
+        IWaveProvider outputProvider = _bitPerfectProvider;
+
+        if (bpStatus == BitPerfectStatus.Limited)
+        {
+            // Формат не поддерживается напрямую, ищем ближайший поддерживаемый
+            var bestFormat = _deviceCaps.GetBestSupportedFormat(sourceSr, sourceBd, sourceCh);
+            if (bestFormat != null)
+            {
+                Logger.Log($"SetupBitPerfectPath: resampling from {sourceSr}/{sourceBd} to {bestFormat.SampleRate}/{bestFormat.BitsPerSample}");
+
+                try
+                {
+                    _resampler = new SoxResampler(_bitPerfectProvider, bestFormat!);
+                    outputProvider = _resampler;
+                    Logger.Log($"SetupBitPerfectPath: SoxResampler created successfully");
+                }
+                catch (Exception resampleEx)
+                {
+                    Logger.Log($"SetupBitPerfectPath: SoxResampler failed: {resampleEx.Message}, falling back to Shared");
+                    _resampler = null;
+                    bpStatus = BitPerfectStatus.Off;
+                }
+            }
+            else
+            {
+                Logger.Log($"SetupBitPerfectPath: no supported format found, falling back to Shared");
+                bpStatus = BitPerfectStatus.Off;
+            }
+        }
+
+        if (bpStatus == BitPerfectStatus.Off)
+        {
+            // Fallback на Shared режим — очищаем Bit Perfect ресурсы
+            _bitPerfectProvider.Dispose();
+            _bitPerfectProvider = null;
+            return (null!, BitPerfectStatus.Off, fallback: true);
+        }
+
+        // Exclusive режим с конвертацией или без
+        Logger.Log($"SetupBitPerfectPath: starting Exclusive mode, bpStatus={bpStatus}, outputProvider type={outputProvider.GetType().Name}, format={outputProvider.WaveFormat.SampleRate}Hz/{outputProvider.WaveFormat.BitsPerSample}bit/{outputProvider.WaveFormat.Channels}ch");
+
+        if (position > TimeSpan.Zero && position < _bitPerfectProvider.TotalTime)
+        {
+            _bitPerfectProvider.Seek(position);
+
+            // Clear resampler internal buffers after seek to prevent stale data
+            if (_resampler != null)
+            {
+                _resampler.Clear();
+                Logger.Log("SetupBitPerfectPath: cleared resampler after seek");
+            }
+        }
+
+        return (outputProvider, bpStatus, fallback: false);
+    }
+
+    /// <summary>
+    /// Sets up the Shared (WASAPI Shared) playback path.
+    /// Creates an AudioFileReader wrapped in FftSampleProvider,
+    /// then converts to IWaveProvider for the output device.
+    /// </summary>
+    private IWaveProvider SetupSharedPath(PlaylistItem currentItem, TimeSpan position)
+    {
+        _audioFileReader = new AudioFileReader(currentItem.AudioFile.FilePath);
+        _audioFileReader.Volume = _volume;
+
+        Logger.Log($"SetupSharedPath: opened file, total={_audioFileReader.TotalTime.TotalSeconds:F3}s, format={_audioFileReader.WaveFormat.SampleRate}Hz/{_audioFileReader.WaveFormat.BitsPerSample}bit/{_audioFileReader.WaveFormat.Channels}ch");
+
+        // If this is a CUE track, seek to the start position
+        if (_isCueTrack && _currentCueTrack != null)
+        {
+            Logger.Log($"SetupSharedPath: seeking to CUE start position {_currentCueTrack.StartPosition}");
+            _audioFileReader.CurrentTime = _currentCueTrack.StartPosition;
+        }
+        else if (position < _audioFileReader.TotalTime)
+        {
+            _audioFileReader.CurrentTime = position;
+        }
+
+        var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
+        return new SampleToWaveProvider(fftProvider);
+    }
+
+    /// <summary>
+    /// Initializes the output device and starts playback with the given provider.
+    /// </summary>
+    private void StartPlayback(IWaveProvider provider, TimeSpan position, bool isShared)
+    {
+        if (isShared)
+        {
+            _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
+            _outputDevice.PlaybackStopped += OnPlaybackStopped;
+            _outputDevice.Init(provider);
+            Logger.Log($"StartPlayback (Shared): WasapiOut initialized, calling Play()");
+            _outputDevice.Play();
+            Logger.Log($"StartPlayback (Shared): Play() called successfully");
+            BitPerfectStatusChanged?.Invoke(BitPerfectStatus.Off);
+        }
+        else
+        {
+            _outputDevice = CreateWasapiOutput();
+            _outputDevice.PlaybackStopped += OnPlaybackStopped;
+
+            try
+            {
+                Logger.Log($"StartPlayback (Bit Perfect): calling _outputDevice.Init()...");
+                _outputDevice.Init(provider);
+                Logger.Log($"StartPlayback (Bit Perfect): Init() succeeded, device is in Exclusive mode");
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"StartPlayback (Bit Perfect): Init failed: {ex.GetType().Name}: {ex.Message}. Falling back to Shared.");
+                _outputDevice.PlaybackStopped -= OnPlaybackStopped;
+                _outputDevice.Dispose();
+
+                _bitPerfectProvider?.Dispose();
+                _bitPerfectProvider = null;
+
+                throw; // Re-throw to trigger the outer catch in PlayInternal
+            }
+        }
+    }
+
+    /// <summary>
+    /// Performs a fallback to Shared mode when Exclusive mode fails.
+    /// Creates a new AudioFileReader and WasapiOut in Shared mode.
+    /// </summary>
+    private void FallbackToShared(PlaylistItem currentItem, TimeSpan position)
+    {
+        Logger.Log($"FallbackToShared: falling back to Shared mode for {currentItem.AudioFile.FilePath}");
+
+        _audioFileReader = new AudioFileReader(currentItem.AudioFile.FilePath);
+        _audioFileReader.Volume = _volume;
+        if (position < _audioFileReader.TotalTime)
+        {
+            _audioFileReader.CurrentTime = position;
+        }
+
+        var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
+        _outputDevice = new WasapiOut(AudioClientShareMode.Shared, 100);
+        _outputDevice.PlaybackStopped += OnPlaybackStopped;
+        _outputDevice.Init(fftProvider);
+        _outputDevice.Play();
+
+        _isPlaying = true;
+        _isPaused = false;
+        TrackChanged?.Invoke(currentItem.AudioFile, _currentCueTrack);
+        DurationChanged?.Invoke(Duration);
+        BitrateChanged?.Invoke(Bitrate);
+        PlayStateChanged?.Invoke(true);
+        BitPerfectStatusChanged?.Invoke(BitPerfectStatus.Off);
+        StartPositionTracking();
     }
 
     private IWavePlayer CreateWasapiOutput()
