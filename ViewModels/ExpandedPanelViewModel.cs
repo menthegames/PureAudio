@@ -53,7 +53,7 @@ public class ExpandedPanelViewModel : INotifyPropertyChanged
     //  Facade properties — delegate to LibraryPanel
     // ════════════════════════════════════════════════════════════════
 
-    public ObservableCollection<LibraryNode> CurrentLibrary => LibraryPanel.CurrentLibrary;
+    public IList<LibraryNode> CurrentLibrary => LibraryPanel.CurrentLibrary;
     public bool IsHiresView
     {
         get => LibraryPanel.IsHiresView;

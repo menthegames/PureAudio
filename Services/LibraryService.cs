@@ -32,13 +32,13 @@ public class LibraryService
     // Excluded paths (files and folders removed by user, persisted)
     private readonly HashSet<string> _excludedPaths = new(StringComparer.OrdinalIgnoreCase);
 
-    // Library trees
-    public ObservableCollection<LibraryNode> HiresTree { get; } = new();
-    public ObservableCollection<LibraryNode> Mp3Tree { get; } = new();
+    // Library trees (List instead of ObservableCollection — UI wraps them as needed)
+    public List<LibraryNode> HiresTree { get; } = new();
+    public List<LibraryNode> Mp3Tree { get; } = new();
 
     // Flat lists for backward compatibility (used by playlist add)
-    public ObservableCollection<LibraryItem> HiresFiles { get; } = new();
-    public ObservableCollection<LibraryItem> Mp3Files { get; } = new();
+    public List<LibraryItem> HiresFiles { get; } = new();
+    public List<LibraryItem> Mp3Files { get; } = new();
 
     private readonly HashSet<string> _allFilePaths = new(StringComparer.OrdinalIgnoreCase);
 
@@ -105,8 +105,8 @@ public class LibraryService
     /// <summary>
     /// Scan a folder and build a tree of LibraryNodes, also populate the flat list.
     /// </summary>
-    private void ScanFolderToTree(string rootPath, ObservableCollection<LibraryNode> tree,
-        HashSet<string> allowedExtensions, ObservableCollection<LibraryItem> flatList)
+    private void ScanFolderToTree(string rootPath, List<LibraryNode> tree,
+        HashSet<string> allowedExtensions, List<LibraryItem> flatList)
     {
         var rootNode = BuildTreeRecursive(rootPath, rootPath, allowedExtensions, flatList);
         if (rootNode != null)
@@ -117,7 +117,7 @@ public class LibraryService
     }
 
     private LibraryNode? BuildTreeRecursive(string rootPath, string currentPath,
-        HashSet<string> allowedExtensions, ObservableCollection<LibraryItem> flatList)
+        HashSet<string> allowedExtensions, List<LibraryItem> flatList)
     {
         var dirInfo = new DirectoryInfo(currentPath);
         if (!dirInfo.Exists) return null;
@@ -498,7 +498,7 @@ public class LibraryService
     /// <summary>
     /// Recursively find and remove a node by its FullPath from the tree.
     /// </summary>
-    private bool RemoveNodeFromTree(ObservableCollection<LibraryNode> tree, string normalizedPath)
+    private bool RemoveNodeFromTree(IList<LibraryNode> tree, string normalizedPath)
     {
         for (int i = tree.Count - 1; i >= 0; i--)
         {

@@ -53,7 +53,7 @@ public class LibraryPanelViewModel : INotifyPropertyChanged
     /// <summary>
     /// Current library tree — switches between Hires and MP3 views.
     /// </summary>
-    public ObservableCollection<LibraryNode> CurrentLibrary => _isHiresView ? _libraryService.HiresTree : _libraryService.Mp3Tree;
+    public IList<LibraryNode> CurrentLibrary => _isHiresView ? _libraryService.HiresTree : _libraryService.Mp3Tree;
 
     public bool IsHiresView
     {
