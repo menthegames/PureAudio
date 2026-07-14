@@ -81,9 +81,9 @@ public class LibraryCacheService
             var json = JsonSerializer.Serialize(cache, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(GetCacheFilePath(), json);
         }
-        catch
+        catch (Exception ex)
         {
-            // Silently fail — cache is non-critical
+            Logger.Log($"SaveCache: failed to save cache: {ex.Message}");
         }
     }
 
@@ -178,8 +178,9 @@ public class LibraryCacheService
 
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            Logger.Log($"TryLoadCache: failed to load cache: {ex.Message}");
             return false;
         }
     }

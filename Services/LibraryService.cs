@@ -586,9 +586,9 @@ public class LibraryService
             var json = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(GetSourcesFilePath(), json);
         }
-        catch
+        catch (Exception ex)
         {
-            // Silently fail — persistence is non-critical
+            Logger.Log($"SaveSources: failed to save sources: {ex.Message}");
         }
     }
 
@@ -613,9 +613,9 @@ public class LibraryService
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Start fresh if file is corrupted
+            Logger.Log($"LoadSources: failed to load sources, starting fresh: {ex.Message}");
             HiresSources = new List<string>();
             Mp3Sources = new List<string>();
         }

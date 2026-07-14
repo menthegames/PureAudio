@@ -105,8 +105,9 @@ public static class MetadataService
                     return bitrate;
             }
         }
-        catch
+        catch (Exception ex)
         {
+            Logger.Log($"ComputeBitrateFromFileSize: error: {ex.Message}");
         }
         return 0;
     }
@@ -244,8 +245,9 @@ public static class MetadataService
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
+            Logger.Log($"ReadAiffBitsPerSample: error reading {filePath}: {ex.Message}");
         }
         return 0;
     }
@@ -304,7 +306,10 @@ public static class MetadataService
                 return coverPath;
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Logger.Log($"ExtractEmbeddedCover: error extracting cover from {audioPath}: {ex.Message}");
+        }
         return null;
     }
 
@@ -330,15 +335,15 @@ public static class MetadataService
                         System.IO.File.Delete(file);
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Skip files we can't access
+                    Logger.Log($"CleanCoverCache: error deleting stale cover {file}: {ex.Message}");
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Silently fail — cache cleanup is non-critical
+            Logger.Log($"CleanCoverCache: error during cache cleanup: {ex.Message}");
         }
     }
 }
