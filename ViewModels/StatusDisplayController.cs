@@ -265,14 +265,9 @@ public class StatusDisplayController : INotifyPropertyChanged
 
     /// <summary>
     /// DAC capabilities text for the DAC info row, e.g. "16-24 bit / 44.1-48 kHz".
+    /// Uses cached value from AudioService to avoid repeated WASAPI calls.
     /// </summary>
-    public string DacCapabilitiesText
-    {
-        get
-        {
-            return _audioService.DeviceCapabilities.DacCapabilitiesText;
-        }
-    }
+    public string DacCapabilitiesText => _audioService.CachedDacCapabilitiesText;
 
     // ════════════════════════════════════════════════════════════════
     //  Bit Perfect Status Text & Color
@@ -370,41 +365,21 @@ public class StatusDisplayController : INotifyPropertyChanged
 
     /// <summary>
     /// Maximum sample rate supported by the audio device (e.g. "192 kHz").
+    /// Uses cached value from AudioService to avoid repeated WASAPI calls.
     /// </summary>
-    public string DeviceMaxSampleRateText
-    {
-        get
-        {
-            int maxSr = _audioService.DeviceCapabilities.MaxSampleRate;
-            if (maxSr <= 0) return "";
-            double khz = maxSr / 1000.0;
-            return khz == (int)khz ? $"{(int)khz} kHz" : $"{khz:F1} kHz";
-        }
-    }
+    public string DeviceMaxSampleRateText => _audioService.CachedDeviceMaxSampleRateText;
 
     /// <summary>
     /// Maximum bit depth supported by the audio device (e.g. "32 bit").
+    /// Uses cached value from AudioService to avoid repeated WASAPI calls.
     /// </summary>
-    public string DeviceMaxBitDepthText
-    {
-        get
-        {
-            int maxBd = _audioService.DeviceCapabilities.MaxBitDepth;
-            return maxBd > 0 ? $"{maxBd} bit" : "";
-        }
-    }
+    public string DeviceMaxBitDepthText => _audioService.CachedDeviceMaxBitDepthText;
 
     /// <summary>
     /// Audio device name for display.
+    /// Uses cached value from AudioService to avoid repeated WASAPI calls.
     /// </summary>
-    public string DeviceNameText
-    {
-        get
-        {
-            string name = _audioService.DeviceCapabilities.DeviceName;
-            return string.IsNullOrEmpty(name) ? "" : name;
-        }
-    }
+    public string DeviceNameText => _audioService.CachedDeviceNameText;
 
     // ════════════════════════════════════════════════════════════════
     //  INotifyPropertyChanged

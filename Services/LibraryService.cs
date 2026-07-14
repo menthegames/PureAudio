@@ -350,92 +350,13 @@ public class LibraryService
     }
 
     /// <summary>
-    /// Recursively filter a library tree by query string.
-    /// Returns a new list of nodes that match (or contain children that match).
-    /// Matching is case-insensitive against Title, Artist, Album, and node Name.
+    /// Filter a library tree by query string.
+    /// Delegated to LibraryFilterService.
     /// </summary>
-    public static List<LibraryNode> FilterTree(IEnumerable<LibraryNode> source, string query)
+    public static List<LibraryNode> FilterTree(IList<LibraryNode> source, string query)
     {
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            // Return a deep copy of the full tree
-            return source.Select(CloneNode).ToList();
-        }
-
-        var lowerQuery = query.Trim().ToLowerInvariant();
-        var result = new List<LibraryNode>();
-
-        foreach (var node in source)
-        {
-            var filtered = FilterNode(node, lowerQuery);
-            if (filtered != null)
-                result.Add(filtered);
-        }
-
-        return result;
+        return LibraryFilterService.FilterTree(source, query);
     }
-
-    private static LibraryNode? FilterNode(LibraryNode node, string lowerQuery)
-    {
-        if (!node.IsFolder)
-        {
-            // Leaf node (audio file): check if it matches the query
-            if (MatchesQuery(node, lowerQuery))
-                return CloneNode(node);
-            return null;
-        }
-
-        // Folder node: recursively filter children
-        var filteredChildren = new List<LibraryNode>();
-        foreach (var child in node.Children)
-        {
-            var filteredChild = FilterNode(child, lowerQuery);
-            if (filteredChild != null)
-                filteredChildren.Add(filteredChild);
-        }
-
-        // Also check if the folder name itself matches
-        bool folderMatches = node.Name.Contains(lowerQuery, StringComparison.OrdinalIgnoreCase);
-
-        if (filteredChildren.Count > 0 || folderMatches)
-        {
-            var clone = CloneNode(node);
-            clone.Children = new ObservableCollection<LibraryNode>(filteredChildren);
-            // Auto-expand folders when search is active
-            clone.IsExpanded = true;
-            return clone;
-        }
-
-        return null;
-    }
-
-    private static bool MatchesQuery(LibraryNode node, string lowerQuery)
-    {
-        if (node.AudioFile == null)
-            return false;
-
-        return
-            (!string.IsNullOrEmpty(node.AudioFile.Title) && node.AudioFile.Title.Contains(lowerQuery, StringComparison.OrdinalIgnoreCase)) ||
-            (!string.IsNullOrEmpty(node.AudioFile.Artist) && node.AudioFile.Artist.Contains(lowerQuery, StringComparison.OrdinalIgnoreCase)) ||
-            (!string.IsNullOrEmpty(node.AudioFile.Album) && node.AudioFile.Album.Contains(lowerQuery, StringComparison.OrdinalIgnoreCase)) ||
-            (!string.IsNullOrEmpty(node.Name) && node.Name.Contains(lowerQuery, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static LibraryNode CloneNode(LibraryNode original)
-    {
-        var clone = new LibraryNode
-        {
-            Name = original.Name,
-            FullPath = original.FullPath,
-            IsFolder = original.IsFolder,
-            AudioFile = original.AudioFile,
-            CueTrack = original.CueTrack,
-            IsExpanded = original.IsExpanded,
-            Children = new ObservableCollection<LibraryNode>(original.Children.Select(CloneNode))
-        };
-        return clone;
-    }
-
 
     /// <summary>
     /// Remove a single audio file from the library (both tree and flat list).

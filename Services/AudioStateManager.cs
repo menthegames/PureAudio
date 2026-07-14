@@ -26,6 +26,12 @@ internal class AudioStateManager : IDisposable
     public BitPerfectStatus CurrentBitPerfectStatus { get; private set; } = BitPerfectStatus.Off;
     public double PausedProgress { get; private set; }
 
+    // ── CUE track properties (forwarded from PlaybackEngine) ──
+    public bool IsCueTrack => _playbackEngine.IsCueTrack;
+    public CueTrack? CurrentCueTrack => _playbackEngine.CurrentCueTrack;
+    public TimeSpan CurrentTrackPosition => _playbackEngine.CurrentTrackPosition;
+    public TimeSpan CurrentTrackDuration => _playbackEngine.CurrentTrackDuration;
+
     // ── Events for ViewModel layer ──
     public event Action<AudioFile, CueTrack?>? TrackChanged;
     public event Action<bool>? PlayStateChanged;

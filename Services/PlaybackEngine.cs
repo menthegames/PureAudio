@@ -27,7 +27,7 @@ internal class PlaybackEngine : IDisposable
     private AudioFileReader? _audioFileReader;
     private BitPerfectWaveProvider? _bitPerfectProvider;
     private SoxResampler? _resampler;
-    private readonly FftService _fftService;
+    private FftWaveProvider? _fftWaveProvider;
     private readonly FftQueue _fftQueue;
     private readonly DeviceCapabilities _deviceCaps;
     private readonly PlaylistService _playlistService;
@@ -67,6 +67,39 @@ internal class PlaybackEngine : IDisposable
     public float SavedVolume => _savedVolume;
     public double PausedProgress => _pausedProgress;
     public DeviceCapabilities DeviceCapabilities => _deviceCaps;
+
+    // ── CUE track properties ──
+    public bool IsCueTrack => _isCueTrack;
+    public CueTrack? CurrentCueTrack => _currentCueTrack;
+
+    /// <summary>
+    /// Current position within the CUE track (relative to track start).
+    /// For non-CUE tracks, returns the absolute position.
+    /// </summary>
+    public TimeSpan CurrentTrackPosition
+    {
+        get
+        {
+            var pos = CurrentPosition;
+            if (_isCueTrack && _currentCueTrack != null)
+                return pos - _currentCueTrack.StartPosition;
+            return pos;
+        }
+    }
+
+    /// <summary>
+    /// Duration of the current CUE track (EndPosition - StartPosition).
+    /// For non-CUE tracks, returns the full file duration.
+    /// </summary>
+    public TimeSpan CurrentTrackDuration
+    {
+        get
+        {
+            if (_isCueTrack && _currentCueTrack != null)
+                return _currentCueTrack.Duration;
+            return Duration;
+        }
+    }
 
     public TimeSpan CurrentPosition
     {
@@ -118,10 +151,9 @@ internal class PlaybackEngine : IDisposable
         }
     }
 
-    public PlaybackEngine(PlaylistService playlistService, FftService fftService, FftQueue fftQueue, DeviceCapabilities deviceCaps)
+    public PlaybackEngine(PlaylistService playlistService, FftQueue fftQueue, DeviceCapabilities deviceCaps)
     {
         _playlistService = playlistService;
-        _fftService = fftService;
         _fftQueue = fftQueue;
         _deviceCaps = deviceCaps;
     }
@@ -272,7 +304,6 @@ internal class PlaybackEngine : IDisposable
 
         try
         {
-            _fftService.Reset();
             _fftQueue.Clear();
 
             Logger.Log($"PlayInternal: file {currentItem.AudioFile.FilePath}, Metadata says {currentItem.AudioFile.BitsPerSample} bit / {currentItem.AudioFile.SampleRate} Hz");
@@ -347,7 +378,7 @@ internal class PlaybackEngine : IDisposable
     private (IWaveProvider outputProvider, BitPerfectStatus status, bool fallback) SetupBitPerfectPath(PlaylistItem currentItem, TimeSpan position)
     {
         _bitPerfectProvider = new BitPerfectWaveProvider(
-            currentItem.AudioFile.FilePath, _fftService, _fftQueue);
+            currentItem.AudioFile.FilePath);
 
         // If this is a CUE track, seek to the start position
         if (_isCueTrack && _currentCueTrack != null)
@@ -404,6 +435,10 @@ internal class PlaybackEngine : IDisposable
             return (null!, BitPerfectStatus.Off, fallback: true);
         }
 
+        // Оборачиваем в FftWaveProvider для FFT-анализа (как в Shared режиме)
+        _fftWaveProvider = new FftWaveProvider(outputProvider, _fftQueue);
+        outputProvider = _fftWaveProvider;
+
         // Exclusive режим с конвертацией или без
         Logger.Log($"SetupBitPerfectPath: starting Exclusive mode, bpStatus={bpStatus}, outputProvider type={outputProvider.GetType().Name}, format={outputProvider.WaveFormat.SampleRate}Hz/{outputProvider.WaveFormat.BitsPerSample}bit/{outputProvider.WaveFormat.Channels}ch");
 
@@ -445,8 +480,8 @@ internal class PlaybackEngine : IDisposable
             _audioFileReader.CurrentTime = position;
         }
 
-        var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
-        return new SampleToWaveProvider(fftProvider);
+        _fftWaveProvider = new FftWaveProvider(_audioFileReader, _fftQueue);
+        return _fftWaveProvider;
     }
 
     /// <summary>
@@ -474,6 +509,8 @@ internal class PlaybackEngine : IDisposable
                 Logger.Log($"StartPlayback (Bit Perfect): calling _outputDevice.Init()...");
                 _outputDevice.Init(provider);
                 Logger.Log($"StartPlayback (Bit Perfect): Init() succeeded, device is in Exclusive mode");
+                _outputDevice.Play();
+                Logger.Log($"StartPlayback (Bit Perfect): Play() called successfully");
             }
             catch (Exception ex)
             {
@@ -504,10 +541,10 @@ internal class PlaybackEngine : IDisposable
             _audioFileReader.CurrentTime = position;
         }
 
-        var fftProvider = new FftSampleProvider(_audioFileReader, _fftService, _fftQueue);
+        _fftWaveProvider = new FftWaveProvider(_audioFileReader, _fftQueue);
         _outputDevice = new WasapiOut(AudioClientShareMode.Shared, DefaultLatencyMs);
         _outputDevice.PlaybackStopped += OnPlaybackStopped;
-        _outputDevice.Init(fftProvider);
+        _outputDevice.Init(_fftWaveProvider);
         _outputDevice.Play();
 
         _isPlaying = true;
@@ -612,7 +649,7 @@ internal class PlaybackEngine : IDisposable
     {
         _userStopRequested = true;
         StopInternal();
-        _fftService.Reset();
+        _fftQueue.Clear();
         PlayStateChanged?.Invoke(false);
         UpdateBitPerfectStatus();
     }
@@ -641,6 +678,12 @@ internal class PlaybackEngine : IDisposable
         {
             _resampler.Dispose();
             _resampler = null;
+        }
+
+        if (_fftWaveProvider != null)
+        {
+            _fftWaveProvider.Dispose();
+            _fftWaveProvider = null;
         }
 
         if (_bitPerfectProvider != null)
@@ -706,6 +749,13 @@ internal class PlaybackEngine : IDisposable
                     _resampler.Dispose();
                     _resampler = new SoxResampler(_bitPerfectProvider, bestFormat);
 
+                    // Recreate FftWaveProvider wrapping the new resampler
+                    if (_fftWaveProvider != null)
+                    {
+                        _fftWaveProvider.Dispose();
+                    }
+                    _fftWaveProvider = new FftWaveProvider(_resampler, _fftQueue);
+
                     if (_outputDevice != null)
                     {
                         _outputDevice.PlaybackStopped -= OnPlaybackStopped;
@@ -715,7 +765,7 @@ internal class PlaybackEngine : IDisposable
 
                     _outputDevice = CreateWasapiOutput();
                     _outputDevice.PlaybackStopped += OnPlaybackStopped;
-                    _outputDevice.Init(_resampler);
+                    _outputDevice.Init(_fftWaveProvider);
                     _outputDevice.Play();
                 }
             }

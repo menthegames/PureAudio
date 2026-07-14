@@ -31,6 +31,65 @@ public class AudioService : IDisposable
     /// </summary>
     public DeviceCapabilities DeviceCapabilities => _engine.DeviceCapabilities;
 
+    // ── Cached DAC capabilities strings (updated on device change) ──
+    private string _cachedDacCapabilitiesText = "";
+    private string _cachedDeviceMaxSampleRateText = "";
+    private string _cachedDeviceMaxBitDepthText = "";
+    private string _cachedDeviceNameText = "";
+
+    /// <summary>
+    /// Cached DAC capabilities text, e.g. "16-24 bit / 44.1-48 kHz".
+    /// Updated when device capabilities are invalidated.
+    /// </summary>
+    public string CachedDacCapabilitiesText => _cachedDacCapabilitiesText;
+
+    /// <summary>
+    /// Cached device max sample rate text, e.g. "192 kHz".
+    /// </summary>
+    public string CachedDeviceMaxSampleRateText => _cachedDeviceMaxSampleRateText;
+
+    /// <summary>
+    /// Cached device max bit depth text, e.g. "32 bit".
+    /// </summary>
+    public string CachedDeviceMaxBitDepthText => _cachedDeviceMaxBitDepthText;
+
+    /// <summary>
+    /// Cached device name text.
+    /// </summary>
+    public string CachedDeviceNameText => _cachedDeviceNameText;
+
+    /// <summary>
+    /// Updates all cached DAC capability strings from the current device.
+    /// Call this after device capabilities are invalidated/re-probed.
+    /// </summary>
+    public void RefreshCachedDacInfo()
+    {
+        var caps = DeviceCapabilities;
+
+        // DacCapabilitiesText
+        _cachedDacCapabilitiesText = caps.DacCapabilitiesText;
+
+        // DeviceMaxSampleRateText
+        int maxSr = caps.MaxSampleRate;
+        if (maxSr > 0)
+        {
+            double khz = maxSr / 1000.0;
+            _cachedDeviceMaxSampleRateText = khz == (int)khz ? $"{(int)khz} kHz" : $"{khz:F1} kHz";
+        }
+        else
+        {
+            _cachedDeviceMaxSampleRateText = "";
+        }
+
+        // DeviceMaxBitDepthText
+        int maxBd = caps.MaxBitDepth;
+        _cachedDeviceMaxBitDepthText = maxBd > 0 ? $"{maxBd} bit" : "";
+
+        // DeviceNameText
+        string name = caps.DeviceName;
+        _cachedDeviceNameText = string.IsNullOrEmpty(name) ? "" : name;
+    }
+
     public bool IsPlaying => _state.IsPlaying;
     public bool IsPaused => _state.IsPaused;
     public bool BitPerfectMode => _state.BitPerfectMode;
@@ -54,6 +113,12 @@ public class AudioService : IDisposable
     public TimeSpan Duration => _state.Duration;
     public int Bitrate => _state.Bitrate;
 
+    // ── CUE track properties (forwarded from AudioStateManager) ──
+    public bool IsCueTrack => _state.IsCueTrack;
+    public CueTrack? CurrentCueTrack => _state.CurrentCueTrack;
+    public TimeSpan CurrentTrackPosition => _state.CurrentTrackPosition;
+    public TimeSpan CurrentTrackDuration => _state.CurrentTrackDuration;
+
     /// <summary>
     /// Current sample rate of the playing track (0 if not playing).
     /// ALWAYS returns the SOURCE format (original track format), not the output format.
@@ -71,7 +136,7 @@ public class AudioService : IDisposable
         _fftQueue = new FftQueue(fftService);
         var deviceCaps = new DeviceCapabilities();
 
-        _engine = new PlaybackEngine(playlistService, fftService, _fftQueue, deviceCaps);
+        _engine = new PlaybackEngine(playlistService, _fftQueue, deviceCaps);
         _state = new AudioStateManager(_engine);
 
         // Wire up events from AudioStateManager to AudioService

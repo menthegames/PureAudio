@@ -2,10 +2,13 @@
 using PureAudio.Models;
 using PureAudio.ViewModels;
 using System;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Shapes;
 
 namespace PureAudio;
 
@@ -37,6 +40,9 @@ public partial class MainWindow : Window
 
         // Handle window closing
         Closing += OnWindowClosing;
+
+        // Subscribe to CUE segment changes for the segmented progress bar
+        _viewModel.CueSegments.CollectionChanged += OnCueSegmentsChanged;
     }
 
     /// <summary>
@@ -149,7 +155,71 @@ public partial class MainWindow : Window
         }
     }
 
+    // ── CUE Segmented Progress Bar ──
+
+    /// <summary>
+    /// Called when the CueSegments collection changes.
+    /// Re-renders the segment rectangles on the canvas.
+    /// </summary>
+    private void OnCueSegmentsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        RenderCueSegments();
+    }
+
+    /// <summary>
+    /// Renders the CUE segment rectangles on the CueSegmentsCanvas.
+    /// Each segment is a Rectangle positioned according to StartRatio/EndRatio.
+    /// Active segments are gold, inactive are grey.
+    /// </summary>
+    private void RenderCueSegments()
+    {
+        CueSegmentsCanvas.Children.Clear();
+
+        var segments = _viewModel.CueSegments;
+        if (segments.Count == 0)
+            return;
+
+        double canvasWidth = CueSegmentsCanvas.ActualWidth;
+        if (canvasWidth <= 0)
+        {
+            // Canvas not yet measured — defer to when it is
+            return;
+        }
+
+        foreach (var segment in segments)
+        {
+            double left = segment.StartRatio * canvasWidth;
+            double width = (segment.EndRatio - segment.StartRatio) * canvasWidth;
+
+            // Clamp to canvas bounds
+            left = Math.Max(0, Math.Min(canvasWidth, left));
+            width = Math.Max(1, Math.Min(canvasWidth - left, width));
+
+            var rect = new Rectangle
+            {
+                Width = width,
+                Height = CueSegmentsCanvas.ActualHeight,
+                Fill = segment.IsActive
+                    ? new SolidColorBrush(Color.FromRgb(0xC9, 0xA8, 0x4C)) // Gold
+                    : new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55)), // Grey
+                Opacity = segment.IsActive ? 0.8 : 0.4
+            };
+
+            Canvas.SetLeft(rect, left);
+            CueSegmentsCanvas.Children.Add(rect);
+        }
+    }
+
+    /// <summary>
+    /// Re-renders segments when the canvas size changes (e.g., window resize).
+    /// </summary>
+    private void CueSegmentsCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        RenderCueSegments();
+    }
+
     // ── Cleanup ──
+
 
     private void OnWindowClosing(object? sender, CancelEventArgs e)
     {

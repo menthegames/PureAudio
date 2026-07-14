@@ -58,6 +58,46 @@
     <!-- ── Gold glow effect brush (semi-transparent gold for hover glow) ── -->
     <SolidColorBrush x:Key="GoldGlowBrush" Color="{StaticResource GoldGlowColor}" Opacity="0.3" />
 
+    <!-- ── Additional UI Colors (for status indicators, etc.) ── -->
+    <!-- Dimmed gold for secondary indicators -->
+    <Color x:Key="DimmedGoldColor">#A88A3E</Color>
+    <!-- Inactive gray for disabled/off indicators -->
+    <Color x:Key="InactiveGrayColor">#555555</Color>
+    <!-- Perfect green for Bit Perfect status -->
+    <Color x:Key="PerfectGreenColor">#4CAF50</Color>
+    <!-- Limited amber for Bit Perfect Limited status -->
+    <Color x:Key="LimitedAmberColor">#FFC107</Color>
+    <!-- Selection background for list/tree items -->
+    <Color x:Key="SelectionBgColor">#383838</Color>
+    <!-- Hover background for list/tree items -->
+    <Color x:Key="HoverBgColor">#2E2E2E</Color>
+    <!-- Toast/placeholder background -->
+    <Color x:Key="PlaceholderBgColor">#1A1A1A</Color>
+    <!-- Source/DAC info text color -->
+    <Color x:Key="InfoTextColor">#CCCCCC</Color>
+    <!-- Source/DAC label color -->
+    <Color x:Key="InfoLabelColor">#888888</Color>
+    <!-- Toast border color -->
+    <Color x:Key="ToastBorderColor">#C9A84C</Color>
+    <!-- Toast text color -->
+    <Color x:Key="ToastTextColor">#C9A84C</Color>
+    <!-- Separator between info text elements -->
+    <Color x:Key="SeparatorColor">#555555</Color>
+
+    <!-- ── Additional Brushes ── -->
+    <SolidColorBrush x:Key="DimmedGoldBrush" Color="{StaticResource DimmedGoldColor}" />
+    <SolidColorBrush x:Key="InactiveGrayBrush" Color="{StaticResource InactiveGrayColor}" />
+    <SolidColorBrush x:Key="PerfectGreenBrush" Color="{StaticResource PerfectGreenColor}" />
+    <SolidColorBrush x:Key="LimitedAmberBrush" Color="{StaticResource LimitedAmberColor}" />
+    <SolidColorBrush x:Key="SelectionBgBrush" Color="{StaticResource SelectionBgColor}" />
+    <SolidColorBrush x:Key="HoverBgBrush" Color="{StaticResource HoverBgColor}" />
+    <SolidColorBrush x:Key="PlaceholderBgBrush" Color="{StaticResource PlaceholderBgColor}" />
+    <SolidColorBrush x:Key="InfoTextBrush" Color="{StaticResource InfoTextColor}" />
+    <SolidColorBrush x:Key="InfoLabelBrush" Color="{StaticResource InfoLabelColor}" />
+    <SolidColorBrush x:Key="ToastBorderBrush" Color="{StaticResource ToastBorderColor}" />
+    <SolidColorBrush x:Key="ToastTextBrush" Color="{StaticResource ToastTextColor}" />
+    <SolidColorBrush x:Key="SeparatorBrush" Color="{StaticResource SeparatorColor}" />
+
     <!-- ============================================================
          GLOBAL BUTTON STYLE — Physical button look with subtle depth
          • Subtle border for definition (like physical button edges)

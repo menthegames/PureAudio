@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using NAudio.Wave;
 using PureAudio.Helpers;
-using PureAudio.Models;
 
 namespace PureAudio.Services;
 
@@ -15,15 +14,13 @@ namespace PureAudio.Services;
 /// This is the key component for Bit Perfect playback — it delivers raw PCM
 /// data directly to the audio driver/DAC in the original format.
 /// 
-/// Also provides FFT data by converting PCM to float samples for the spectrum analyzer.
 /// Supports position tracking and seeking.
+/// NOTE: FFT data is now handled by FftWaveProvider wrapping this provider.
 /// </summary>
 internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
 {
     private readonly IWaveProvider _sourceProvider;
     private readonly IDisposable? _disposableSource;
-    private readonly FftService? _fftService;
-    private readonly FftQueue _fftQueue;
     private readonly AudioFileReader? _audioFileReader; // For non-PCM formats (MP3, AAC, etc.)
     private bool _disposed;
 
@@ -37,13 +34,8 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
     // The original PCM format of the source
     private readonly WaveFormat _pcmFormat;
 
-    // Buffer for float conversion (for FFT)
-    private float[]? _floatBuffer;
-
-    public BitPerfectWaveProvider(string filePath, FftService? fftService = null, FftQueue? fftQueue = null)
+    public BitPerfectWaveProvider(string filePath)
     {
-        _fftService = fftService;
-        _fftQueue = fftQueue ?? new FftQueue(fftService ?? new FftService());
         string ext = Path.GetExtension(filePath).ToLowerInvariant();
 
         switch (ext)
@@ -55,9 +47,6 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
                 _disposableSource = reader;
                 _totalPcmBytes = reader.Length;
                 _useAudioFileReader = false;
-
-                if (_fftService != null)
-                    _fftService.SetSampleRate(reader.WaveFormat.SampleRate);
                 break;
             }
 
@@ -96,8 +85,6 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
                 }
                 
                 Logger.Log($"BitPerfectWaveProvider: FLAC final source format = {_sourceProvider.WaveFormat.SampleRate}Hz/{_sourceProvider.WaveFormat.BitsPerSample}bit/{_sourceProvider.WaveFormat.Channels}ch");
-                if (_fftService != null)
-                    _fftService.SetSampleRate(format.SampleRate);
                 break;
             }
 
@@ -114,9 +101,6 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
 
                 Logger.Log(
                     $"BitPerfectWaveProvider: {ext} - {reader.WaveFormat.SampleRate}Hz/{reader.WaveFormat.BitsPerSample}bit/{reader.WaveFormat.Channels}ch");
-
-                if (_fftService != null)
-                    _fftService.SetSampleRate(reader.WaveFormat.SampleRate);
                 break;
             }
         }
@@ -140,95 +124,13 @@ internal class BitPerfectWaveProvider : IWaveProvider, IDisposable
     {
         int bytesRead = _sourceProvider.Read(buffer, offset, count);
 
-        if (bytesRead > 0)
+        if (bytesRead > 0 && !_useAudioFileReader)
         {
-            if (!_useAudioFileReader)
-            {
-                // Track position in PCM bytes
-                _pcmPosition += bytesRead;
-            }
-
-            // Feed FFT by converting PCM bytes to float samples
-            if (_fftService != null)
-            {
-                FeedFft(buffer, offset, bytesRead);
-            }
+            // Track position in PCM bytes
+            _pcmPosition += bytesRead;
         }
 
         return bytesRead;
-    }
-
-    /// <summary>
-    /// Converts PCM byte data to float samples and feeds them to FFT service.
-    /// </summary>
-    private void FeedFft(byte[] buffer, int offset, int bytesRead)
-    {
-        try
-        {
-            int bitsPerSample = _pcmFormat.BitsPerSample;
-            int channels = _pcmFormat.Channels;
-            
-            // ЗАЩИТА: Проверяем корректность битности
-            if (bitsPerSample != 8 && bitsPerSample != 16 && bitsPerSample != 24 && bitsPerSample != 32)
-            {
-                Logger.Log($"FeedFft: Invalid bitsPerSample={bitsPerSample}, skipping FFT");
-                return;
-            }
-            
-            int bytesPerSample = bitsPerSample / 8;
-            int totalSamples = bytesRead / bytesPerSample;
-            int frames = totalSamples / channels;
-            if (frames <= 0) return;
-            
-            // Allocate or resize float buffer
-            if (_floatBuffer == null || _floatBuffer.Length < frames)
-                _floatBuffer = new float[frames];
-            
-            // Convert PCM to float (mono mix)
-            for (int i = 0; i < frames; i++)
-            {
-                float sample = 0;
-                for (int ch = 0; ch < channels; ch++)
-                {
-                    int byteOffset = offset + (i * channels + ch) * bytesPerSample;
-                    if (byteOffset + bytesPerSample > offset + bytesRead)
-                        break;
-                    float chSample;
-                    switch (bitsPerSample)
-                    {
-                        case 16:
-                            short s16 = (short)(buffer[byteOffset] | (buffer[byteOffset + 1] << 8));
-                            chSample = s16 / 32768f;
-                            break;
-                        case 24:
-                            int s24 = buffer[byteOffset] |
-                                      (buffer[byteOffset + 1] << 8) |
-                                      (buffer[byteOffset + 2] << 16);
-                            if ((s24 & 0x800000) != 0)
-                                s24 |= unchecked((int)0xFF000000);
-                            chSample = s24 / 8388608f;
-                            break;
-                        case 32:
-                            int s32 = buffer[byteOffset] |
-                                      (buffer[byteOffset + 1] << 8) |
-                                      (buffer[byteOffset + 2] << 16) |
-                                      (buffer[byteOffset + 3] << 24);
-                            chSample = s32 / 2147483648f;
-                            break;
-                        default:
-                            chSample = 0;
-                            break;
-                    }
-                    sample += chSample;
-                }
-                _floatBuffer[i] = Math.Clamp(sample / channels, -1f, 1f);
-            }
-            _fftQueue.Enqueue(_floatBuffer, frames);
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"FeedFft: Exception - {ex.GetType().Name}: {ex.Message}");
-        }
     }
 
     /// <summary>

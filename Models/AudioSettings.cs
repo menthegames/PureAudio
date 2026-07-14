@@ -1,5 +1,11 @@
 namespace PureAudio.Models;
 
+public enum ProgressMode
+{
+    Track,
+    Album
+}
+
 public class AudioSettings
 {
     public bool BitPerfectEnabled { get; set; } = false;
@@ -8,4 +14,5 @@ public class AudioSettings
     public bool IsExpanded { get; set; } = false;
     public bool IsDarkTheme { get; set; } = true;
     public bool IsHiresMode { get; set; } = false;
+    public ProgressMode ProgressMode { get; set; } = ProgressMode.Album;
 }

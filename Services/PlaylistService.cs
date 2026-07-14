@@ -1,19 +1,12 @@
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Text.Json;
 using PureAudio.Models;
 
 namespace PureAudio.Services;
 
 public class PlaylistService
 {
-    private static readonly string PlaylistFilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "PureAudio", "playlist.json");
-
-    private static readonly string SavedPlaylistsFilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "PureAudio", "saved_playlists.json");
+    private readonly PlaylistPersistenceService _persistence = new();
 
     public ObservableCollection<PlaylistItem> Items { get; } = new();
     public int CurrentIndex { get; set; } = -1;
@@ -127,43 +120,20 @@ public class PlaylistService
 
     /// <summary>
     /// Save the current playlist (file paths) to JSON.
+    /// Delegated to PlaylistPersistenceService.
     /// </summary>
     public void SaveToJson()
     {
-        try
-        {
-            var dir = Path.GetDirectoryName(PlaylistFilePath);
-            if (dir != null) Directory.CreateDirectory(dir);
-
-            var paths = Items.Select(i => i.AudioFile.FilePath).ToList();
-            var json = JsonSerializer.Serialize(paths, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(PlaylistFilePath, json);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Failed to save playlist: {ex.Message}");
-        }
+        _persistence.SaveToJson(Items);
     }
 
     /// <summary>
     /// Load the playlist from JSON. Returns the list of file paths that were loaded.
+    /// Delegated to PlaylistPersistenceService.
     /// </summary>
     public List<string> LoadFromJson()
     {
-        try
-        {
-            if (!File.Exists(PlaylistFilePath))
-                return new List<string>();
-
-            var json = File.ReadAllText(PlaylistFilePath);
-            var paths = JsonSerializer.Deserialize<List<string>>(json);
-            return paths ?? new List<string>();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Failed to load playlist: {ex.Message}");
-            return new List<string>();
-        }
+        return _persistence.LoadFromJson();
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -191,7 +161,7 @@ public class PlaylistService
         }
 
         CurrentPlaylistName = name;
-        SaveSavedPlaylistsToJson();
+        _persistence.SaveSavedPlaylistsToJson(SavedPlaylists);
     }
 
     /// <summary>
@@ -221,7 +191,6 @@ public class PlaylistService
         }
     }
 
-
     /// <summary>
     /// Delete a named playlist.
     /// </summary>
@@ -233,7 +202,7 @@ public class PlaylistService
             SavedPlaylists.Remove(playlist);
             if (CurrentPlaylistName == name)
                 CurrentPlaylistName = null;
-            SaveSavedPlaylistsToJson();
+            _persistence.SaveSavedPlaylistsToJson(SavedPlaylists);
         }
     }
 
@@ -248,7 +217,7 @@ public class PlaylistService
             playlist.Name = newName;
             if (CurrentPlaylistName == oldName)
                 CurrentPlaylistName = newName;
-            SaveSavedPlaylistsToJson();
+            _persistence.SaveSavedPlaylistsToJson(SavedPlaylists);
         }
     }
 
@@ -262,48 +231,22 @@ public class PlaylistService
 
     /// <summary>
     /// Save all named playlists to JSON.
+    /// Delegated to PlaylistPersistenceService.
     /// </summary>
     public void SaveSavedPlaylistsToJson()
     {
-        try
-        {
-            var dir = Path.GetDirectoryName(SavedPlaylistsFilePath);
-            if (dir != null) Directory.CreateDirectory(dir);
-
-            var json = JsonSerializer.Serialize(SavedPlaylists.ToList(),
-                new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(SavedPlaylistsFilePath, json);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Failed to save playlists: {ex.Message}");
-        }
+        _persistence.SaveSavedPlaylistsToJson(SavedPlaylists);
     }
 
     /// <summary>
     /// Load all named playlists from JSON.
+    /// Delegated to PlaylistPersistenceService.
     /// </summary>
     public void LoadSavedPlaylistsFromJson()
     {
-        try
-        {
-            if (!File.Exists(SavedPlaylistsFilePath))
-                return;
-
-            var json = File.ReadAllText(SavedPlaylistsFilePath);
-            var playlists = JsonSerializer.Deserialize<List<UserPlaylist>>(json);
-            if (playlists != null)
-            {
-                SavedPlaylists.Clear();
-                foreach (var p in playlists)
-                    SavedPlaylists.Add(p);
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Failed to load saved playlists: {ex.Message}");
-        }
+        var playlists = _persistence.LoadSavedPlaylistsFromJson();
+        SavedPlaylists.Clear();
+        foreach (var p in playlists)
+            SavedPlaylists.Add(p);
     }
 }
-
-

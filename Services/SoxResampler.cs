@@ -21,7 +21,7 @@ internal class SoxResampler : IWaveProvider, IDisposable
     private readonly IWaveProvider _sourceProvider;
     private readonly WaveFormat _outputFormat;
     private readonly WdlResamplingSampleProvider _resampler;
-    private readonly PcmToSampleProvider _floatSource;
+    private readonly ISampleProvider _floatSource;
     private bool _disposed;
 
     // Buffer for float -> PCM conversion (reused across Read calls)
@@ -47,8 +47,8 @@ internal class SoxResampler : IWaveProvider, IDisposable
             $"{outputFormat.SampleRate}Hz/{outputFormat.BitsPerSample}bit/{outputFormat.Channels}ch, " +
             $"ratio={outputFormat.SampleRate / (double)sourceFormat.SampleRate:F6}");
 
-        // Create a float converter from the source PCM provider
-        _floatSource = new PcmToSampleProvider(sourceProvider);
+        // Create a float converter from the source PCM provider using shared PcmConverter
+        _floatSource = PcmConverter.CreateSampleProvider(sourceProvider);
 
         // Create the WDL resampler
         _resampler = new WdlResamplingSampleProvider(_floatSource, outputFormat.SampleRate);
@@ -94,54 +94,9 @@ internal class SoxResampler : IWaveProvider, IDisposable
             bytesToWrite = buffer.Length - offset;
 
         // Convert float samples back to PCM bytes directly into the output buffer
-        FloatToPcm(_floatBuffer, buffer, offset, samplesRead, _outputFormat.BitsPerSample);
+        PcmConverter.FloatToPcm(_floatBuffer, buffer, offset, samplesRead, _outputFormat.BitsPerSample);
 
         return bytesToWrite;
-    }
-
-    /// <summary>
-    /// Convert float samples (-1.0 to 1.0) to PCM bytes.
-    /// </summary>
-    private static void FloatToPcm(float[] floatSamples, byte[] pcmBuffer, int dstOffset, int count, int bitsPerSample)
-    {
-        int bytesPerSample = bitsPerSample / 8;
-
-        for (int i = 0; i < count; i++)
-        {
-            float sample = Math.Clamp(floatSamples[i], -1.0f, 1.0f);
-            int byteOffset = dstOffset + i * bytesPerSample;
-
-            if (byteOffset + bytesPerSample > pcmBuffer.Length)
-                break;
-
-            switch (bitsPerSample)
-            {
-                case 16:
-                {
-                    short s16 = (short)(sample * 32767.0f);
-                    pcmBuffer[byteOffset] = (byte)(s16 & 0xFF);
-                    pcmBuffer[byteOffset + 1] = (byte)((s16 >> 8) & 0xFF);
-                    break;
-                }
-                case 24:
-                {
-                    int s24 = (int)(sample * 8388607.0f);
-                    pcmBuffer[byteOffset] = (byte)(s24 & 0xFF);
-                    pcmBuffer[byteOffset + 1] = (byte)((s24 >> 8) & 0xFF);
-                    pcmBuffer[byteOffset + 2] = (byte)((s24 >> 16) & 0xFF);
-                    break;
-                }
-                case 32:
-                {
-                    int s32 = (int)(sample * 2147483647.0f);
-                    pcmBuffer[byteOffset] = (byte)(s32 & 0xFF);
-                    pcmBuffer[byteOffset + 1] = (byte)((s32 >> 8) & 0xFF);
-                    pcmBuffer[byteOffset + 2] = (byte)((s32 >> 16) & 0xFF);
-                    pcmBuffer[byteOffset + 3] = (byte)((s32 >> 24) & 0xFF);
-                    break;
-                }
-            }
-        }
     }
 
     /// <summary>
@@ -159,106 +114,6 @@ internal class SoxResampler : IWaveProvider, IDisposable
             if (_resampler is IDisposable d)
                 d.Dispose();
             _disposed = true;
-        }
-    }
-
-    /// <summary>
-    /// Custom ISampleProvider that converts PCM IWaveProvider to float samples.
-    /// Supports 16-bit, 24-bit, and 32-bit PCM.
-    /// </summary>
-    private class PcmToSampleProvider : ISampleProvider
-    {
-        private readonly IWaveProvider _source;
-        private readonly WaveFormat _waveFormat;
-        private readonly int _bytesPerSample;
-        private readonly int _bitsPerSample;
-        private readonly byte[] _readBuffer;
-
-        public PcmToSampleProvider(IWaveProvider source)
-        {
-            _source = source;
-            _waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(
-                source.WaveFormat.SampleRate, source.WaveFormat.Channels);
-            _bytesPerSample = source.WaveFormat.BitsPerSample / 8;
-            _bitsPerSample = source.WaveFormat.BitsPerSample;
-            _readBuffer = new byte[65536];
-        }
-
-        public WaveFormat WaveFormat => _waveFormat;
-
-        public int Read(float[] buffer, int offset, int count)
-        {
-            int bytesNeeded = count * _bytesPerSample;
-            if (_readBuffer.Length < bytesNeeded)
-            {
-                // Read in chunks
-                int totalFloats = 0;
-                while (totalFloats < count)
-                {
-                    int chunkFloats = Math.Min(count - totalFloats, _readBuffer.Length / _bytesPerSample);
-                    int chunkBytes = chunkFloats * _bytesPerSample;
-                    int bytesRead = _source.Read(_readBuffer, 0, chunkBytes);
-                    int framesRead = bytesRead / _bytesPerSample;
-
-                    if (framesRead <= 0)
-                        break;
-
-                    ConvertToFloat(_readBuffer, 0, buffer, offset + totalFloats, framesRead);
-                    totalFloats += framesRead;
-                }
-                return totalFloats;
-            }
-
-            int bytesRead2 = _source.Read(_readBuffer, 0, bytesNeeded);
-            int framesRead2 = bytesRead2 / _bytesPerSample;
-
-            if (framesRead2 <= 0)
-                return 0;
-
-            ConvertToFloat(_readBuffer, 0, buffer, offset, framesRead2);
-            return framesRead2;
-        }
-
-        private void ConvertToFloat(byte[] src, int srcOffset, float[] dst, int dstOffset, int count)
-        {
-            for (int i = 0; i < count; i++)
-            {
-                int byteOffset = srcOffset + i * _bytesPerSample;
-                if (byteOffset + _bytesPerSample > src.Length)
-                    break;
-
-                switch (_bitsPerSample)
-                {
-                    case 16:
-                    {
-                        short s16 = (short)(src[byteOffset] | (src[byteOffset + 1] << 8));
-                        dst[dstOffset + i] = s16 / 32768f;
-                        break;
-                    }
-                    case 24:
-                    {
-                        int s24 = src[byteOffset] |
-                                  (src[byteOffset + 1] << 8) |
-                                  (src[byteOffset + 2] << 16);
-                        if ((s24 & 0x800000) != 0)
-                            s24 |= unchecked((int)0xFF000000);
-                        dst[dstOffset + i] = s24 / 8388608f;
-                        break;
-                    }
-                    case 32:
-                    {
-                        int s32 = src[byteOffset] |
-                                  (src[byteOffset + 1] << 8) |
-                                  (src[byteOffset + 2] << 16) |
-                                  (src[byteOffset + 3] << 24);
-                        dst[dstOffset + i] = s32 / 2147483648f;
-                        break;
-                    }
-                    default:
-                        dst[dstOffset + i] = 0;
-                        break;
-                }
-            }
         }
     }
 }

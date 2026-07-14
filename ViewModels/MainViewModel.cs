@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
@@ -36,6 +38,7 @@ public class MainViewModel : INotifyPropertyChanged
     private double _progress;
     private double _volumeValue;
     private bool _isSeeking;
+    private ProgressMode _currentProgressMode;
     // Background loading state
     private bool _isLoadingPlaylist;
     private bool _isLoadingLibrary;
@@ -68,6 +71,7 @@ public class MainViewModel : INotifyPropertyChanged
         _isExpanded = settings.IsExpanded;
         _isHiresMode = settings.IsHiresMode;
         _volumeValue = settings.Volume;
+        _currentProgressMode = settings.ProgressMode;
 
         // Subscribe to audio events
         _audioService.TrackChanged += OnTrackChanged;
@@ -78,6 +82,9 @@ public class MainViewModel : INotifyPropertyChanged
         _audioService.VolumeChanged += OnVolumeChanged;
         _audioService.BitPerfectModeChanged += OnBitPerfectModeChanged;
         _audioService.BitPerfectStatusChanged += OnBitPerfectStatusChanged;
+
+        // Subscribe to playlist changes for CUE segment updates
+        _playlistService.Items.CollectionChanged += OnPlaylistCollectionChanged;
 
         // Commands
         PlayPauseCommand = new RelayCommand(_ => PlayPause());
@@ -90,12 +97,16 @@ public class MainViewModel : INotifyPropertyChanged
         AddSourceCommand = new RelayCommand(_ => AddSource());
         ShowHelpCommand = new RelayCommand(_ => ShowHelp());
         SeekCommand = new RelayCommand(param => Seek(param));
+        ToggleProgressModeCommand = new RelayCommand(_ => ToggleProgressMode());
 
         // Initialize FFT timer (updates at ~16ms for ~60 FPS — smooth animation)
         _fftTimer = new System.Windows.Threading.DispatcherTimer();
         _fftTimer.Interval = TimeSpan.FromMilliseconds(16);
         _fftTimer.Tick += OnFftTimerTick;
         _fftTimer.Start();
+
+        // Initialize cached DAC info (avoids repeated WASAPI calls on UI updates)
+        _audioService.RefreshCachedDacInfo();
 
         // Set default text
         UpdateMarqueeText();
@@ -116,6 +127,65 @@ public class MainViewModel : INotifyPropertyChanged
     public string TotalDurationText => _totalDuration.Hours > 0 
         ? _totalDuration.ToString(@"h\:mm\:ss") 
         : _totalDuration.ToString(@"m\:ss");
+
+    /// <summary>
+    /// Combined time display text.
+    /// For CUE tracks in Album mode: shows "track time / album total time".
+    /// For CUE tracks in Track mode: shows only "track time" (no total).
+    /// For normal tracks: shows "elapsed / total duration" (same as before).
+    /// </summary>
+    public string CueTimeDisplayText
+    {
+        get
+        {
+            if (_audioService.IsCueTrack && _audioService.CurrentCueTrack != null)
+            {
+                var trackPos = _audioService.CurrentTrackPosition;
+                var trackDur = _audioService.CurrentTrackDuration;
+                string posText = trackPos.Hours > 0
+                    ? trackPos.ToString(@"h\:mm\:ss")
+                    : trackPos.ToString(@"m\:ss");
+
+                if (_currentProgressMode == ProgressMode.Track)
+                {
+                    // Track mode: show only track position time
+                    return posText;
+                }
+
+                // Album mode: show "track time / track duration"
+                string durText = trackDur.Hours > 0
+                    ? trackDur.ToString(@"h\:mm\:ss")
+                    : trackDur.ToString(@"m\:ss");
+                return $"{posText} / {durText}";
+            }
+            return $"{ElapsedText} / {TotalDurationText}";
+        }
+    }
+
+    /// <summary>
+    /// Current progress display mode: Track (per-track) or Album (full album).
+    /// </summary>
+    public ProgressMode CurrentProgressMode
+    {
+        get => _currentProgressMode;
+        set
+        {
+            if (_currentProgressMode != value)
+            {
+                _currentProgressMode = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ProgressModeButtonText));
+                OnPropertyChanged(nameof(CueSegmentsVisibility));
+                OnPropertyChanged(nameof(CueTimeDisplayText));
+                _settingsService.Update(s => s.ProgressMode = value);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Button text for toggling progress mode.
+    /// </summary>
+    public string ProgressModeButtonText => _currentProgressMode == ProgressMode.Album ? "Album" : "Track";
 
     public TimeSpan Elapsed
     {
@@ -271,7 +341,146 @@ public class MainViewModel : INotifyPropertyChanged
     // Expanded Panel ViewModel
     public ExpandedPanelViewModel ExpandedPanel { get; }
 
+    // ════════════════════════════════════════════════════════════════
+    //  CUE Segments for segmented progress bar
+    // ════════════════════════════════════════════════════════════════
+
+    public ObservableCollection<CueSegment> CueSegments { get; } = new();
+
+    /// <summary>
+    /// Visibility of the CUE segments overlay on the progress bar.
+    /// Visible only in Album mode AND when CueSegments has items.
+    /// In Track mode, segments are always hidden.
+    /// </summary>
+    public Visibility CueSegmentsVisibility =>
+        _currentProgressMode == ProgressMode.Album && CueSegments.Count > 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    /// <summary>
+    /// Updates CueSegments based on the current playlist.
+    /// If all items are CUE tracks from the same physical file, builds segments.
+    /// Otherwise clears the collection.
+    /// </summary>
+    public void UpdateCueSegments()
+    {
+        var items = _playlistService.Items;
+        if (items.Count == 0)
+        {
+            CueSegments.Clear();
+            return;
+        }
+
+        // Check if all items are CUE tracks from the same physical file
+        string? commonFilePath = null;
+        bool allCueTracks = true;
+
+        foreach (var item in items)
+        {
+            if (item.CueTrack == null)
+            {
+                allCueTracks = false;
+                break;
+            }
+
+            if (commonFilePath == null)
+            {
+                commonFilePath = item.CueTrack.FilePath;
+                // Calculate album duration from the last track's EndPosition
+                // We'll compute it properly below
+            }
+            else if (item.CueTrack.FilePath != commonFilePath)
+            {
+                allCueTracks = false;
+                break;
+            }
+        }
+
+        if (!allCueTracks || commonFilePath == null)
+        {
+            CueSegments.Clear();
+            return;
+        }
+
+        // Find the total album duration = max EndPosition among all CUE tracks
+        TimeSpan maxEnd = TimeSpan.Zero;
+        foreach (var item in items)
+        {
+            if (item.CueTrack != null && item.CueTrack.EndPosition > maxEnd)
+                maxEnd = item.CueTrack.EndPosition;
+        }
+
+        if (maxEnd.TotalSeconds <= 0)
+        {
+            CueSegments.Clear();
+            return;
+        }
+
+        double totalSeconds = maxEnd.TotalSeconds;
+
+        // Build segments from all CUE tracks that belong to this file
+        // We need to consider ALL tracks from the CUE sheet, not just those in the playlist
+        // But for simplicity, we build segments from the playlist items themselves
+        // and mark IsActive based on presence in the playlist.
+
+        // First, collect all unique CUE tracks from the playlist grouped by their start position
+        var cueTracksInPlaylist = new Dictionary<string, PlaylistItem>();
+        foreach (var item in items)
+        {
+            if (item.CueTrack != null)
+            {
+                string key = $"{item.CueTrack.FilePath}|{item.CueTrack.StartPosition.Ticks}";
+                cueTracksInPlaylist[key] = item;
+            }
+        }
+
+        // Build segments from the playlist items (each item with a CueTrack becomes a segment)
+        var newSegments = new List<CueSegment>();
+        foreach (var item in items)
+        {
+            if (item.CueTrack == null) continue;
+
+            var ct = item.CueTrack;
+            double startRatio = ct.StartPosition.TotalSeconds / totalSeconds;
+            double endRatio = ct.EndPosition.TotalSeconds / totalSeconds;
+
+            // Clamp to 0..1
+            startRatio = Math.Max(0, Math.Min(1, startRatio));
+            endRatio = Math.Max(0, Math.Min(1, endRatio));
+
+            string key = $"{ct.FilePath}|{ct.StartPosition.Ticks}";
+            bool isActive = cueTracksInPlaylist.ContainsKey(key);
+
+            newSegments.Add(new CueSegment
+            {
+                StartRatio = startRatio,
+                EndRatio = endRatio,
+                IsActive = isActive,
+                TrackNumber = ct.TrackNumber
+            });
+        }
+
+        // Replace collection content on UI thread
+        CueSegments.Clear();
+        foreach (var seg in newSegments)
+        {
+            CueSegments.Add(seg);
+        }
+
+        OnPropertyChanged(nameof(CueSegmentsVisibility));
+    }
+
+    /// <summary>
+    /// Called when the playlist collection changes (items added/removed).
+    /// Updates CUE segments accordingly.
+    /// </summary>
+    private void OnPlaylistCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        UpdateCueSegments();
+    }
+
     // Commands
+
     public ICommand PlayPauseCommand { get; }
     public ICommand StopCommand { get; }
     public ICommand NextCommand { get; }
@@ -282,6 +491,7 @@ public class MainViewModel : INotifyPropertyChanged
     public ICommand AddSourceCommand { get; }
     public ICommand ShowHelpCommand { get; }
     public ICommand SeekCommand { get; }
+    public ICommand ToggleProgressModeCommand { get; }
 
     /// <summary>
     /// Refresh all indicator properties by delegating to the StatusDisplayController.
@@ -413,6 +623,13 @@ public class MainViewModel : INotifyPropertyChanged
         _settingsService.Update(s => s.IsHiresMode = _isHiresMode);
     }
 
+    private void ToggleProgressMode()
+    {
+        CurrentProgressMode = _currentProgressMode == ProgressMode.Album
+            ? ProgressMode.Track
+            : ProgressMode.Album;
+    }
+
     private void AddSource()
     {
         if (_isHiresMode)
@@ -452,6 +669,14 @@ public class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(PlayPauseIcon));
         OnPropertyChanged(nameof(CoverPath));
         RefreshIndicators();
+
+        // For CUE tracks, update duration from the CUE track duration
+        if (cueTrack != null)
+        {
+            TotalDuration = cueTrack.Duration;
+        }
+
+        UpdateCueTimeDisplay();
     }
 
     private void OnPlayStateChanged(bool playing)
@@ -497,6 +722,8 @@ public class MainViewModel : INotifyPropertyChanged
                 Progress = position.TotalSeconds / _totalDuration.TotalSeconds;
             }
         }
+
+        UpdateCueTimeDisplay();
     }
 
     private void OnDurationChanged(TimeSpan duration)
@@ -552,6 +779,15 @@ public class MainViewModel : INotifyPropertyChanged
         {
             MarqueeText = "PureAudio - High Fidelity Music Player";
         }
+    }
+
+    /// <summary>
+    /// Notify the UI that CueTimeDisplayText has changed.
+    /// Called on position changes and track changes.
+    /// </summary>
+    private void UpdateCueTimeDisplay()
+    {
+        OnPropertyChanged(nameof(CueTimeDisplayText));
     }
 
     private void StartMarquee()
