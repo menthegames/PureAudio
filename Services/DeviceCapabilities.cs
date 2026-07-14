@@ -35,6 +35,7 @@ public class DeviceCapabilities
     private int _maxChannels;
     private string _deviceName = "";
     private string _cachedDeviceId = "";
+    private string? _cachedDacCapabilitiesText = null;
 
     /// <summary>Maximum sample rate supported by this device in Exclusive mode.</summary>
     public int MaxSampleRate
@@ -124,6 +125,7 @@ public class DeviceCapabilities
     {
         _probed = false;
         _cachedDeviceId = "";
+        _cachedDacCapabilitiesText = null;
     }
 
     /// <summary>
@@ -142,6 +144,7 @@ public class DeviceCapabilities
         _maxSampleRate = 0;
         _maxBitDepth = 0;
         _maxChannels = 0;
+        _cachedDacCapabilitiesText = null;
 
         // Get device name and ID from a fresh enumerator
         using (var enumForName = new MMDeviceEnumerator())
@@ -289,6 +292,8 @@ public class DeviceCapabilities
     /// <summary>
     /// Returns a compact string describing the DAC's capabilities range,
     /// e.g. "16-24 bit / 44.1-48 kHz".
+    /// Result is cached after first computation to avoid repeated WASAPI calls.
+    /// Call <see cref="InvalidateCache"/> to reset when device changes.
     /// </summary>
     public string DacCapabilitiesText
     {
@@ -297,6 +302,9 @@ public class DeviceCapabilities
             EnsureProbed();
             if (_maxBitDepth <= 0 || _maxSampleRate <= 0)
                 return "";
+
+            if (_cachedDacCapabilitiesText != null)
+                return _cachedDacCapabilitiesText;
 
             // Build bit depth range string
             string bitDepthStr;
@@ -336,7 +344,8 @@ public class DeviceCapabilities
             else
                 srStr = $"{minSr / 1000.0:0.#}-{maxSr / 1000.0:0.#} kHz";
 
-            return $"{bitDepthStr} / {srStr}";
+            _cachedDacCapabilitiesText = $"{bitDepthStr} / {srStr}";
+            return _cachedDacCapabilitiesText;
         }
     }
 
