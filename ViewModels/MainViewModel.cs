@@ -478,53 +478,18 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Called when the playlist collection changes (items added/removed).
-    /// Only rebuilds CUE segments if the changed item belongs to the current album.
+    /// Always rebuilds CUE segments if a CUE track is currently playing,
+    /// because any change might affect the active/inactive status of album tracks.
     /// </summary>
     private void OnPlaylistCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        var currentCueTrack = _audioService.CurrentCueTrack;
-        if (currentCueTrack == null)
-        {
-            // Not playing a CUE track — no segments to update
-            return;
-        }
-
-        string currentAlbumId = GetCueAlbumId(currentCueTrack);
-
-        // Check if any of the changed items belong to the current album
-        bool affectsCurrentAlbum = false;
-
-        if (e.NewItems != null)
-        {
-            foreach (var item in e.NewItems)
-            {
-                if (item is PlaylistItem pi && pi.CueTrack != null &&
-                    GetCueAlbumId(pi.CueTrack) == currentAlbumId)
-                {
-                    affectsCurrentAlbum = true;
-                    break;
-                }
-            }
-        }
-
-        if (!affectsCurrentAlbum && e.OldItems != null)
-        {
-            foreach (var item in e.OldItems)
-            {
-                if (item is PlaylistItem pi && pi.CueTrack != null &&
-                    GetCueAlbumId(pi.CueTrack) == currentAlbumId)
-                {
-                    affectsCurrentAlbum = true;
-                    break;
-                }
-            }
-        }
-
-        if (affectsCurrentAlbum)
+        // Only rebuild if we're currently playing a CUE track
+        if (_audioService.CurrentCueTrack != null)
         {
             UpdateCueSegments();
         }
     }
+
 
 
     // Commands
