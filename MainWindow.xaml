@@ -585,7 +585,7 @@
                     <!-- CUE segment overlay (visible only when CueSegments has items) -->
                     <Canvas x:Name="CueSegmentsCanvas"
                             IsHitTestVisible="False"
-                            Height="6"
+                            Height="4"
                             VerticalAlignment="Center"
                             HorizontalAlignment="Stretch"
                             Visibility="{Binding CueSegmentsVisibility}"

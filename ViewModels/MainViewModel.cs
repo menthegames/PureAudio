@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Input;
@@ -245,9 +246,10 @@ public class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Button text for Bit Perfect toggle.
+    /// Button text for Exclusive/Shared mode toggle.
+    /// Shows "Exclusive" when Bit Perfect mode is active, "Shared" when inactive.
     /// </summary>
-    public string BitPerfectButtonText => "Bit Perfect";
+    public string BitPerfectButtonText => _bitPerfectMode ? "Exclusive" : "Shared";
 
     // ════════════════════════════════════════════════════════════════
     //  Status indicator properties — delegated to StatusDisplayController
@@ -359,8 +361,12 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Updates CueSegments based on the current playlist.
-    /// If all items are CUE tracks from the same physical file, builds segments.
-    /// Otherwise clears the collection.
+    /// If the playlist contains at least one CUE track, builds segments for ALL
+    /// playlist items (both CUE and regular tracks) based on their durations.
+    /// For CUE tracks, also includes tracks from the same CUE file that are not
+    /// in the playlist (shown as inactive/dimmed).
+    /// For regular tracks, all segments are active.
+    /// If no CUE tracks are present, clears the collection.
     /// </summary>
     public void UpdateCueSegments()
     {
@@ -371,100 +377,189 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        // Check if all items are CUE tracks from the same physical file
-        string? commonFilePath = null;
-        bool allCueTracks = true;
-
-        foreach (var item in items)
-        {
-            if (item.CueTrack == null)
-            {
-                allCueTracks = false;
-                break;
-            }
-
-            if (commonFilePath == null)
-            {
-                commonFilePath = item.CueTrack.FilePath;
-                // Calculate album duration from the last track's EndPosition
-                // We'll compute it properly below
-            }
-            else if (item.CueTrack.FilePath != commonFilePath)
-            {
-                allCueTracks = false;
-                break;
-            }
-        }
-
-        if (!allCueTracks || commonFilePath == null)
-        {
-            CueSegments.Clear();
-            return;
-        }
-
-        // Find the total album duration = max EndPosition among all CUE tracks
-        TimeSpan maxEnd = TimeSpan.Zero;
-        foreach (var item in items)
-        {
-            if (item.CueTrack != null && item.CueTrack.EndPosition > maxEnd)
-                maxEnd = item.CueTrack.EndPosition;
-        }
-
-        if (maxEnd.TotalSeconds <= 0)
-        {
-            CueSegments.Clear();
-            return;
-        }
-
-        double totalSeconds = maxEnd.TotalSeconds;
-
-        // Build segments from all CUE tracks that belong to this file
-        // We need to consider ALL tracks from the CUE sheet, not just those in the playlist
-        // But for simplicity, we build segments from the playlist items themselves
-        // and mark IsActive based on presence in the playlist.
-
-        // First, collect all unique CUE tracks from the playlist grouped by their start position
-        var cueTracksInPlaylist = new Dictionary<string, PlaylistItem>();
+        // Check if there is at least one CUE track in the playlist
+        bool hasCueTrack = false;
         foreach (var item in items)
         {
             if (item.CueTrack != null)
             {
-                string key = $"{item.CueTrack.FilePath}|{item.CueTrack.StartPosition.Ticks}";
-                cueTracksInPlaylist[key] = item;
+                hasCueTrack = true;
+                break;
             }
         }
 
-        // Build segments from the playlist items (each item with a CueTrack becomes a segment)
-        var newSegments = new List<CueSegment>();
+        if (!hasCueTrack)
+        {
+            CueSegments.Clear();
+            return;
+        }
+
+        // Build a lookup of active track IDs (tracks currently in the playlist)
+        var activeTrackIds = new HashSet<string>();
+        var cueFilePaths = new HashSet<string>();
+
         foreach (var item in items)
         {
-            if (item.CueTrack == null) continue;
+            string trackId;
+            if (item.CueTrack != null)
+            {
+                trackId = $"{item.CueTrack.FilePath}|{item.CueTrack.StartPosition.Ticks}";
+                if (!string.IsNullOrEmpty(item.CueTrack.CueFilePath))
+                    cueFilePaths.Add(item.CueTrack.CueFilePath);
+            }
+            else
+            {
+                trackId = item.AudioFile.FilePath;
+            }
+            activeTrackIds.Add(trackId);
+        }
 
-            var ct = item.CueTrack;
-            double startRatio = ct.StartPosition.TotalSeconds / totalSeconds;
-            double endRatio = ct.EndPosition.TotalSeconds / totalSeconds;
+        // Collect all CUE tracks from all referenced CUE files (for showing removed tracks)
+        var allCueTracks = new List<(CueTrack track, string trackId)>();
+        foreach (var cueFilePath in cueFilePaths)
+        {
+            if (File.Exists(cueFilePath))
+            {
+                var parsed = CueSheetService.ParseCueFile(cueFilePath);
+                foreach (var ct in parsed)
+                {
+                    string tid = $"{ct.FilePath}|{ct.StartPosition.Ticks}";
+                    allCueTracks.Add((ct, tid));
+                }
+            }
+        }
 
-            // Clamp to 0..1
+        // Build the full ordered list of all tracks (playlist items + removed CUE tracks)
+        // preserving the original CUE file order for removed tracks
+        var orderedTracks = new List<(double durationSeconds, bool isActive, int trackNumber, string trackId)>();
+
+        // First pass: add all playlist items in order
+        foreach (var item in items)
+        {
+            double durationSeconds;
+            int trackNumber;
+            string trackId;
+
+            if (item.CueTrack != null)
+            {
+                durationSeconds = item.CueTrack.Duration.TotalSeconds;
+                trackNumber = item.CueTrack.TrackNumber;
+                trackId = $"{item.CueTrack.FilePath}|{item.CueTrack.StartPosition.Ticks}";
+            }
+            else
+            {
+                durationSeconds = item.AudioFile.Duration.TotalSeconds;
+                trackNumber = 0;
+                trackId = item.AudioFile.FilePath;
+            }
+
+            orderedTracks.Add((durationSeconds, true, trackNumber, trackId));
+        }
+
+        // Second pass: insert removed CUE tracks at their correct positions
+        // Group allCueTracks by CueFilePath to preserve per-file ordering
+        var cueTracksByFile = new Dictionary<string, List<(CueTrack track, string trackId)>>();
+        foreach (var entry in allCueTracks)
+        {
+            string cueFilePath = entry.track.CueFilePath ?? string.Empty;
+            if (!cueTracksByFile.ContainsKey(cueFilePath))
+                cueTracksByFile[cueFilePath] = new List<(CueTrack, string)>();
+            cueTracksByFile[cueFilePath].Add(entry);
+        }
+
+        // For each CUE file, find where its tracks appear in orderedTracks and insert missing ones
+        foreach (var kvp in cueTracksByFile)
+        {
+            var cueTracks = kvp.Value;
+            // Find the first index in orderedTracks that belongs to this CUE file
+            int insertIndex = -1;
+            for (int i = 0; i < orderedTracks.Count; i++)
+            {
+                string tid = orderedTracks[i].trackId;
+                // Check if this trackId belongs to this CUE file
+                foreach (var ct in cueTracks)
+                {
+                    if (ct.trackId == tid)
+                    {
+                        if (insertIndex == -1)
+                            insertIndex = i;
+                        break;
+                    }
+                }
+                if (insertIndex != -1)
+                    break;
+            }
+
+            if (insertIndex == -1)
+            {
+                // No tracks from this CUE file are in the playlist — append at end
+                insertIndex = orderedTracks.Count;
+            }
+
+            // Insert missing CUE tracks in their original order
+            int offset = 0;
+            foreach (var ct in cueTracks)
+            {
+                // Check if this track is already in orderedTracks
+                bool found = false;
+                foreach (var ot in orderedTracks)
+                {
+                    if (ot.trackId == ct.trackId)
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    orderedTracks.Insert(insertIndex + offset, (ct.track.Duration.TotalSeconds, false, ct.track.TrackNumber, ct.trackId));
+                    offset++;
+                }
+            }
+        }
+
+        // Calculate total duration
+        double totalDurationSeconds = 0;
+        foreach (var (durationSeconds, _, _, _) in orderedTracks)
+        {
+            totalDurationSeconds += durationSeconds;
+        }
+
+        if (totalDurationSeconds <= 0)
+        {
+            CueSegments.Clear();
+            return;
+        }
+
+        // Build segments
+        double runningOffset = 0;
+        var newSegments = new List<CueSegment>();
+
+        foreach (var (durationSeconds, isActive, trackNumber, trackId) in orderedTracks)
+        {
+            double startRatio = runningOffset / totalDurationSeconds;
+            runningOffset += durationSeconds;
+            double endRatio = runningOffset / totalDurationSeconds;
+
             startRatio = Math.Max(0, Math.Min(1, startRatio));
             endRatio = Math.Max(0, Math.Min(1, endRatio));
-
-            string key = $"{ct.FilePath}|{ct.StartPosition.Ticks}";
-            bool isActive = cueTracksInPlaylist.ContainsKey(key);
 
             newSegments.Add(new CueSegment
             {
                 StartRatio = startRatio,
                 EndRatio = endRatio,
                 IsActive = isActive,
-                TrackNumber = ct.TrackNumber
+                TrackNumber = trackNumber,
+                TrackId = trackId
             });
         }
 
         // Replace collection content on UI thread
         CueSegments.Clear();
-        foreach (var seg in newSegments)
+        foreach (var segment in newSegments)
         {
-            CueSegments.Add(seg);
+            CueSegments.Add(segment);
         }
 
         OnPropertyChanged(nameof(CueSegmentsVisibility));

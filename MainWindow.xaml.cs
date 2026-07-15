@@ -159,17 +159,23 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Called when the CueSegments collection changes.
-    /// Re-renders the segment rectangles on the canvas.
+    /// Re-renders the segment dividers on the canvas.
+    /// Uses Dispatcher.BeginInvoke to ensure the canvas has been measured
+    /// (ActualWidth is valid) after visibility change from Collapsed to Visible.
     /// </summary>
     private void OnCueSegmentsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        RenderCueSegments();
+        Dispatcher.BeginInvoke(new Action(() => RenderCueSegments()), System.Windows.Threading.DispatcherPriority.Background);
     }
 
     /// <summary>
-    /// Renders the CUE segment rectangles on the CueSegmentsCanvas.
-    /// Each segment is a Rectangle positioned according to StartRatio/EndRatio.
-    /// Active segments are gold, inactive are grey.
+    /// Renders the CUE segment markers on the CueSegmentsCanvas.
+    /// Active segments (tracks present in playlist):
+    ///   - Draw a thin dark vertical divider line at the start of each segment
+    ///   - The bright slider background shows through between dividers
+    /// Inactive segments (tracks removed from playlist):
+    ///   - Draw a grey semi-transparent rectangle over the segment area
+    ///   - This dims the bright slider background, making the segment look muted
     /// </summary>
     private void RenderCueSegments()
     {
@@ -186,27 +192,63 @@ public partial class MainWindow : Window
             return;
         }
 
+        double canvasHeight = CueSegmentsCanvas.ActualHeight;
+
+        // Resolve theme brushes from application resources
+        var activeDividerBrush = TryFindResource("PlaceholderBgBrush") as Brush
+                                 ?? new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A));
+        var inactiveBrush = TryFindResource("InactiveGrayBrush") as Brush
+                            ?? new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55));
+
+        // First pass: draw grey dimming rectangles for inactive segments
+        foreach (var segment in segments)
+        {
+            if (segment.IsActive)
+                continue;
+
+            double left = segment.StartRatio * canvasWidth;
+            double right = segment.EndRatio * canvasWidth;
+
+            left = Math.Max(0, Math.Min(canvasWidth, left));
+            right = Math.Max(0, Math.Min(canvasWidth, right));
+
+            double width = right - left;
+            if (width <= 0)
+                continue;
+
+            var dimRect = new Rectangle
+            {
+                Width = width,
+                Height = canvasHeight,
+                Fill = inactiveBrush,
+                Opacity = 0.35
+            };
+
+            Canvas.SetLeft(dimRect, left);
+            CueSegmentsCanvas.Children.Add(dimRect);
+        }
+
+        // Second pass: draw dark vertical divider lines at segment boundaries
         foreach (var segment in segments)
         {
             double left = segment.StartRatio * canvasWidth;
-            double width = (segment.EndRatio - segment.StartRatio) * canvasWidth;
 
-            // Clamp to canvas bounds
+            // Skip the very first boundary (left edge of the bar)
+            if (left <= 0)
+                continue;
+
             left = Math.Max(0, Math.Min(canvasWidth, left));
-            width = Math.Max(1, Math.Min(canvasWidth - left, width));
 
-            var rect = new Rectangle
+            var line = new Rectangle
             {
-                Width = width,
-                Height = CueSegmentsCanvas.ActualHeight,
-                Fill = segment.IsActive
-                    ? new SolidColorBrush(Color.FromRgb(0xC9, 0xA8, 0x4C)) // Gold
-                    : new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55)), // Grey
-                Opacity = segment.IsActive ? 0.8 : 0.4
+                Width = 1,
+                Height = canvasHeight,
+                Fill = activeDividerBrush,
+                Opacity = 1.0
             };
 
-            Canvas.SetLeft(rect, left);
-            CueSegmentsCanvas.Children.Add(rect);
+            Canvas.SetLeft(line, left);
+            CueSegmentsCanvas.Children.Add(line);
         }
     }
 

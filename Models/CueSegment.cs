@@ -26,4 +26,10 @@ public class CueSegment
     /// Track number from the CUE sheet.
     /// </summary>
     public int TrackNumber { get; set; }
+
+    /// <summary>
+    /// Unique identifier for the track: "FilePath|StartPosition.Ticks" for CUE tracks,
+    /// or just "FilePath" for regular tracks. Used to track segment identity across playlist changes.
+    /// </summary>
+    public string TrackId { get; set; } = string.Empty;
 }
