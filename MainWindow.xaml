@@ -164,33 +164,11 @@
                                 VerticalAlignment="Center">
 
                         <!-- Timer Display — monospace for tabular figures -->
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0"
-                                       Text="{Binding CueTimeDisplayText}"
-                                       Foreground="{DynamicResource AccentBrush}"
-                                       FontSize="22"
-                                       FontFamily="Consolas"
-                                       FontWeight="SemiBold" />
-                            <!-- Progress Mode Toggle (Album/Track) -->
-                            <Button Grid.Column="1"
-                                    Content="{Binding ProgressModeButtonText}"
-                                    Command="{Binding ToggleProgressModeCommand}"
-                                    FontSize="10"
-                                    FontWeight="Bold"
-                                    Width="48"
-                                    Height="20"
-                                    Margin="8,0,0,0"
-                                    VerticalAlignment="Center"
-                                    Background="{DynamicResource SurfaceBrush}"
-                                    BorderBrush="{DynamicResource BorderBrush}"
-                                    BorderThickness="1"
-                                    Foreground="{DynamicResource TextSecondaryBrush}"
-                                    Cursor="Hand" />
-                        </Grid>
+                        <TextBlock Text="{Binding CueTimeDisplayText}"
+                                   Foreground="{DynamicResource AccentBrush}"
+                                   FontSize="22"
+                                   FontFamily="Consolas"
+                                   FontWeight="SemiBold" />
 
                         <!-- Bitrate -->
                         <TextBlock Text="{Binding BitrateValue, StringFormat='{}{0} kbps'}"
@@ -218,7 +196,7 @@
                             </TextBlock>
                         </Border>
 
-                        <!-- Play/Pause/Stop Indicators + Bit Perfect Toggle -->
+                        <!-- Play/Pause/Stop Indicators + Progress Mode Toggle -->
                         <WrapPanel Margin="0,12,0,0">
                             <Border Background="{DynamicResource SurfaceBrush}"
                                     BorderBrush="Transparent"
@@ -262,15 +240,18 @@
                                     </TextBlock.Foreground>
                                 </TextBlock>
                             </Border>
-                            <!-- Bit Perfect Mode Toggle Button -->
-                            <Button Width="100" Height="26"
-                                    Content="{Binding BitPerfectButtonText}"
-                                    Command="{Binding BitPerfectCommand}"
+                            <!-- Progress Mode Toggle (Album/Track) — right of transport indicators -->
+                            <Button Width="48" Height="20"
+                                    Content="{Binding ProgressModeButtonText}"
+                                    Command="{Binding ToggleProgressModeCommand}"
                                     FontSize="10"
                                     FontWeight="Bold"
                                     VerticalAlignment="Center"
-                                    Foreground="{Binding BitPerfectButtonColor, Converter={StaticResource ColorToBrushConverter}}"
-                                    BorderBrush="{Binding BitPerfectBorderColor, Converter={StaticResource ColorToBrushConverter}}" />
+                                    Background="{DynamicResource SurfaceBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="1"
+                                    Foreground="{DynamicResource TextSecondaryBrush}"
+                                    Cursor="Hand" />
                         </WrapPanel>
                     </StackPanel>
 
@@ -319,51 +300,27 @@
 
 
 
-                    <!-- Row 1: Lossless/Compressed toggle + Bit-Perfect Indicator -->
+                    <!-- Row 1: Exclusive/Shared + Lossless/Compressed toggles -->
                     <StackPanel Grid.Row="1"
                                 Orientation="Horizontal"
                                 HorizontalAlignment="Left"
                                 Margin="3,0,0,0">
-                        <Button Width="108" Height="30"
+                        <Button Width="100" Height="30"
                                 Margin="0,0,8,0"
+                                Content="{Binding BitPerfectButtonText}"
+                                Command="{Binding BitPerfectCommand}"
+                                FontSize="10"
+                                FontWeight="Bold"
+                                VerticalAlignment="Center"
+                                Foreground="{Binding BitPerfectButtonColor, Converter={StaticResource ColorToBrushConverter}}"
+                                BorderBrush="{Binding BitPerfectBorderColor, Converter={StaticResource ColorToBrushConverter}}" />
+                        <Button Width="108" Height="30"
                                 Content="{Binding LibraryModeText}"
                                 Command="{Binding ToggleLibraryModeCommand}"
                                 FontSize="11"
                                 FontWeight="Bold"
                                 Foreground="{Binding HiresIndicatorColor, Converter={StaticResource ColorToBrushConverter}}"
                                 BorderBrush="{Binding HiresIndicatorColor, Converter={StaticResource ColorToBrushConverter}}" />
-                        <Border Background="{DynamicResource SurfaceBrush}"
-                                BorderBrush="Transparent"
-                                BorderThickness="0"
-                                CornerRadius="4"
-                                Padding="8,4"
-                                Height="30"
-                                VerticalAlignment="Center"
-                                ToolTip="{Binding BitPerfectInfoText}">
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding BitDepthText}"
-                                           FontSize="13"
-                                           FontWeight="SemiBold"
-                                           VerticalAlignment="Center">
-                                    <TextBlock.Foreground>
-                                        <SolidColorBrush Color="{Binding BitDepthColor}" />
-                                    </TextBlock.Foreground>
-                                </TextBlock>
-                                <TextBlock Text="  "
-                                           FontSize="13"
-                                           FontWeight="Medium"
-                                           VerticalAlignment="Center"
-                                           Foreground="{DynamicResource TextMutedBrush}" />
-                                <TextBlock Text="{Binding SampleRateText}"
-                                           FontSize="13"
-                                           FontWeight="SemiBold"
-                                           VerticalAlignment="Center">
-                                    <TextBlock.Foreground>
-                                        <SolidColorBrush Color="{Binding SampleRateColor}" />
-                                    </TextBlock.Foreground>
-                                </TextBlock>
-                            </StackPanel>
-                        </Border>
                     </StackPanel>
 
                     <!-- Row 2: Source + DAC info rows (spacer area between buttons and transport) -->
