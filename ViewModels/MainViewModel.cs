@@ -372,7 +372,8 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Updates CueSegments based on the currently playing CUE album.
-    /// Segments are shown only for the album of the current CUE track.
+    /// Shows segments for ALL tracks from the CUE file of the current album.
+    /// Tracks present in the playlist are active (gold), removed tracks are inactive (grey).
     /// Non-CUE tracks clear the segments (normal progress bar).
     /// </summary>
     public void UpdateCueSegments()
@@ -386,46 +387,49 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        var items = _playlistService.Items;
-        if (items.Count == 0)
-        {
-            CueSegments.Clear();
-            return;
-        }
-
-        // Determine the current album identifier
+        // Determine the current album identifier (CueFilePath)
         string currentAlbumId = GetCueAlbumId(currentCueTrack);
 
-        // Find all playlist items that belong to this same album
-        var albumItems = new List<(PlaylistItem item, CueTrack cueTrack)>();
-        foreach (var item in items)
+        // Build a set of track IDs that are currently in the playlist for this album
+        var activeTrackIds = new HashSet<string>();
+        foreach (var item in _playlistService.Items)
         {
             if (item.CueTrack != null && GetCueAlbumId(item.CueTrack) == currentAlbumId)
             {
-                albumItems.Add((item, item.CueTrack));
+                string tid = $"{item.CueTrack.FilePath}|{item.CueTrack.StartPosition.Ticks}";
+                activeTrackIds.Add(tid);
             }
         }
 
-        if (albumItems.Count == 0)
+        // Parse the CUE file to get ALL tracks of the album (including removed ones)
+        string cueFilePath = currentCueTrack.CueFilePath;
+        if (string.IsNullOrEmpty(cueFilePath) || !File.Exists(cueFilePath))
         {
             CueSegments.Clear();
             return;
         }
 
-        // Sort by TrackNumber (or StartPosition as fallback) to preserve album order
-        albumItems.Sort((a, b) =>
+        var allCueTracks = CueSheetService.ParseCueFile(cueFilePath);
+        if (allCueTracks.Count == 0)
         {
-            int trackCompare = a.cueTrack.TrackNumber.CompareTo(b.cueTrack.TrackNumber);
+            CueSegments.Clear();
+            return;
+        }
+
+        // Sort by TrackNumber to preserve album order
+        allCueTracks.Sort((a, b) =>
+        {
+            int trackCompare = a.TrackNumber.CompareTo(b.TrackNumber);
             if (trackCompare != 0)
                 return trackCompare;
-            return a.cueTrack.StartPosition.CompareTo(b.cueTrack.StartPosition);
+            return a.StartPosition.CompareTo(b.StartPosition);
         });
 
-        // Calculate total duration of the album (sum of all tracks in the album)
+        // Calculate total duration of the album (sum of all tracks)
         double totalDurationSeconds = 0;
-        foreach (var (_, cueTrack) in albumItems)
+        foreach (var ct in allCueTracks)
         {
-            totalDurationSeconds += cueTrack.Duration.TotalSeconds;
+            totalDurationSeconds += ct.Duration.TotalSeconds;
         }
 
         if (totalDurationSeconds <= 0)
@@ -434,14 +438,15 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        // Build segments — all tracks from the current album are active
+        // Build segments for ALL tracks — active if in playlist, inactive if removed
         double runningOffset = 0;
         var newSegments = new List<CueSegment>();
 
-        foreach (var (item, cueTrack) in albumItems)
+        foreach (var ct in allCueTracks)
         {
-            double durationSeconds = cueTrack.Duration.TotalSeconds;
-            string trackId = $"{cueTrack.FilePath}|{cueTrack.StartPosition.Ticks}";
+            double durationSeconds = ct.Duration.TotalSeconds;
+            string trackId = $"{ct.FilePath}|{ct.StartPosition.Ticks}";
+            bool isActive = activeTrackIds.Contains(trackId);
 
             double startRatio = runningOffset / totalDurationSeconds;
             runningOffset += durationSeconds;
@@ -454,8 +459,8 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 StartRatio = startRatio,
                 EndRatio = endRatio,
-                IsActive = true,
-                TrackNumber = cueTrack.TrackNumber,
+                IsActive = isActive,
+                TrackNumber = ct.TrackNumber,
                 TrackId = trackId
             });
         }
@@ -469,6 +474,7 @@ public class MainViewModel : INotifyPropertyChanged
 
         OnPropertyChanged(nameof(CueSegmentsVisibility));
     }
+
 
     /// <summary>
     /// Called when the playlist collection changes (items added/removed).
