@@ -360,14 +360,32 @@ public class MainViewModel : INotifyPropertyChanged
             : Visibility.Collapsed;
 
     /// <summary>
-    /// Updates CueSegments based on the current playlist.
-    /// Builds segments preserving the original CUE file track order.
-    /// For each CUE file, all its tracks are shown in their original order;
-    /// tracks present in the playlist are active (gold), removed tracks are inactive (grey).
-    /// Non-CUE tracks are shown as active segments in playlist order.
+    /// Gets the album identifier for a CUE track.
+    /// Uses CueFilePath if available, otherwise falls back to the Album name.
+    /// </summary>
+    private static string GetCueAlbumId(CueTrack cueTrack)
+    {
+        return !string.IsNullOrEmpty(cueTrack.CueFilePath)
+            ? cueTrack.CueFilePath
+            : cueTrack.Album;
+    }
+
+    /// <summary>
+    /// Updates CueSegments based on the currently playing CUE album.
+    /// Segments are shown only for the album of the current CUE track.
+    /// Non-CUE tracks clear the segments (normal progress bar).
     /// </summary>
     public void UpdateCueSegments()
     {
+        var currentCueTrack = _audioService.CurrentCueTrack;
+
+        // If not playing a CUE track, clear segments
+        if (currentCueTrack == null)
+        {
+            CueSegments.Clear();
+            return;
+        }
+
         var items = _playlistService.Items;
         if (items.Count == 0)
         {
@@ -375,132 +393,39 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        // Check if there is at least one CUE track in the playlist
-        bool hasCueTrack = false;
+        // Determine the current album identifier
+        string currentAlbumId = GetCueAlbumId(currentCueTrack);
+
+        // Find all playlist items that belong to this same album
+        var albumItems = new List<(PlaylistItem item, CueTrack cueTrack)>();
         foreach (var item in items)
         {
-            if (item.CueTrack != null)
+            if (item.CueTrack != null && GetCueAlbumId(item.CueTrack) == currentAlbumId)
             {
-                hasCueTrack = true;
-                break;
+                albumItems.Add((item, item.CueTrack));
             }
         }
 
-        if (!hasCueTrack)
+        if (albumItems.Count == 0)
         {
             CueSegments.Clear();
             return;
         }
 
-        // Build a lookup of active track IDs (tracks currently in the playlist)
-        var activeTrackIds = new HashSet<string>();
-        var cueFilePaths = new HashSet<string>();
-
-        foreach (var item in items)
+        // Sort by TrackNumber (or StartPosition as fallback) to preserve album order
+        albumItems.Sort((a, b) =>
         {
-            string trackId;
-            if (item.CueTrack != null)
-            {
-                trackId = $"{item.CueTrack.FilePath}|{item.CueTrack.StartPosition.Ticks}";
-                if (!string.IsNullOrEmpty(item.CueTrack.CueFilePath))
-                    cueFilePaths.Add(item.CueTrack.CueFilePath);
-            }
-            else
-            {
-                trackId = item.AudioFile.FilePath;
-            }
-            activeTrackIds.Add(trackId);
-        }
+            int trackCompare = a.cueTrack.TrackNumber.CompareTo(b.cueTrack.TrackNumber);
+            if (trackCompare != 0)
+                return trackCompare;
+            return a.cueTrack.StartPosition.CompareTo(b.cueTrack.StartPosition);
+        });
 
-        // Collect all CUE tracks from all referenced CUE files (for showing removed tracks)
-        var allCueTracksByFile = new Dictionary<string, List<(CueTrack track, string trackId)>>();
-        foreach (var cueFilePath in cueFilePaths)
-        {
-            if (File.Exists(cueFilePath))
-            {
-                var parsed = CueSheetService.ParseCueFile(cueFilePath);
-                var list = new List<(CueTrack, string)>();
-                foreach (var ct in parsed)
-                {
-                    string tid = $"{ct.FilePath}|{ct.StartPosition.Ticks}";
-                    list.Add((ct, tid));
-                }
-                allCueTracksByFile[cueFilePath] = list;
-            }
-        }
-
-        // Build the ordered list of segments by interleaving playlist items
-        // with their corresponding CUE file tracks in original order.
-        // Strategy: iterate through playlist items; for each CUE track encountered,
-        // emit all tracks from that CUE file (in original order) that haven't been emitted yet.
-        var orderedTracks = new List<(double durationSeconds, bool isActive, int trackNumber, string trackId)>();
-        var emittedTrackIds = new HashSet<string>();
-
-        foreach (var item in items)
-        {
-            double durationSeconds;
-            int trackNumber;
-            string trackId;
-
-            if (item.CueTrack != null)
-            {
-                durationSeconds = item.CueTrack.Duration.TotalSeconds;
-                trackNumber = item.CueTrack.TrackNumber;
-                trackId = $"{item.CueTrack.FilePath}|{item.CueTrack.StartPosition.Ticks}";
-
-                // When we encounter a CUE track, emit ALL tracks from its CUE file
-                // that haven't been emitted yet (preserving original CUE order)
-                string cueFilePath = item.CueTrack.CueFilePath ?? string.Empty;
-                if (!string.IsNullOrEmpty(cueFilePath) && allCueTracksByFile.ContainsKey(cueFilePath))
-                {
-                    var cueTracks = allCueTracksByFile[cueFilePath];
-                    foreach (var (ct, tid) in cueTracks)
-                    {
-                        if (!emittedTrackIds.Contains(tid))
-                        {
-                            emittedTrackIds.Add(tid);
-                            bool isActive = activeTrackIds.Contains(tid);
-                            orderedTracks.Add((ct.Duration.TotalSeconds, isActive, ct.TrackNumber, tid));
-                        }
-                    }
-                    continue; // already handled above
-                }
-            }
-            else
-            {
-                durationSeconds = item.AudioFile.Duration.TotalSeconds;
-                trackNumber = 0;
-                trackId = item.AudioFile.FilePath;
-            }
-
-            // Non-CUE track or CUE track without a CUE file reference
-            if (!emittedTrackIds.Contains(trackId))
-            {
-                emittedTrackIds.Add(trackId);
-                orderedTracks.Add((durationSeconds, true, trackNumber, trackId));
-            }
-        }
-
-        // After processing all playlist items, append any remaining CUE tracks
-        // from referenced CUE files that were never encountered in the playlist
-        // (e.g., if all tracks from a CUE file were removed).
-        foreach (var kvp in allCueTracksByFile)
-        {
-            foreach (var (ct, tid) in kvp.Value)
-            {
-                if (!emittedTrackIds.Contains(tid))
-                {
-                    emittedTrackIds.Add(tid);
-                    orderedTracks.Add((ct.Duration.TotalSeconds, false, ct.TrackNumber, tid));
-                }
-            }
-        }
-
-        // Calculate total duration
+        // Calculate total duration of the album (sum of all tracks in the album)
         double totalDurationSeconds = 0;
-        foreach (var (durationSeconds, _, _, _) in orderedTracks)
+        foreach (var (_, cueTrack) in albumItems)
         {
-            totalDurationSeconds += durationSeconds;
+            totalDurationSeconds += cueTrack.Duration.TotalSeconds;
         }
 
         if (totalDurationSeconds <= 0)
@@ -509,12 +434,15 @@ public class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        // Build segments
+        // Build segments — all tracks from the current album are active
         double runningOffset = 0;
         var newSegments = new List<CueSegment>();
 
-        foreach (var (durationSeconds, isActive, trackNumber, trackId) in orderedTracks)
+        foreach (var (item, cueTrack) in albumItems)
         {
+            double durationSeconds = cueTrack.Duration.TotalSeconds;
+            string trackId = $"{cueTrack.FilePath}|{cueTrack.StartPosition.Ticks}";
+
             double startRatio = runningOffset / totalDurationSeconds;
             runningOffset += durationSeconds;
             double endRatio = runningOffset / totalDurationSeconds;
@@ -526,8 +454,8 @@ public class MainViewModel : INotifyPropertyChanged
             {
                 StartRatio = startRatio,
                 EndRatio = endRatio,
-                IsActive = isActive,
-                TrackNumber = trackNumber,
+                IsActive = true,
+                TrackNumber = cueTrack.TrackNumber,
                 TrackId = trackId
             });
         }
@@ -544,12 +472,54 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Called when the playlist collection changes (items added/removed).
-    /// Updates CUE segments accordingly.
+    /// Only rebuilds CUE segments if the changed item belongs to the current album.
     /// </summary>
     private void OnPlaylistCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        UpdateCueSegments();
+        var currentCueTrack = _audioService.CurrentCueTrack;
+        if (currentCueTrack == null)
+        {
+            // Not playing a CUE track — no segments to update
+            return;
+        }
+
+        string currentAlbumId = GetCueAlbumId(currentCueTrack);
+
+        // Check if any of the changed items belong to the current album
+        bool affectsCurrentAlbum = false;
+
+        if (e.NewItems != null)
+        {
+            foreach (var item in e.NewItems)
+            {
+                if (item is PlaylistItem pi && pi.CueTrack != null &&
+                    GetCueAlbumId(pi.CueTrack) == currentAlbumId)
+                {
+                    affectsCurrentAlbum = true;
+                    break;
+                }
+            }
+        }
+
+        if (!affectsCurrentAlbum && e.OldItems != null)
+        {
+            foreach (var item in e.OldItems)
+            {
+                if (item is PlaylistItem pi && pi.CueTrack != null &&
+                    GetCueAlbumId(pi.CueTrack) == currentAlbumId)
+                {
+                    affectsCurrentAlbum = true;
+                    break;
+                }
+            }
+        }
+
+        if (affectsCurrentAlbum)
+        {
+            UpdateCueSegments();
+        }
     }
+
 
     // Commands
 
@@ -749,7 +719,11 @@ public class MainViewModel : INotifyPropertyChanged
         }
 
         UpdateCueTimeDisplay();
+
+        // Rebuild CUE segments for the new track's album
+        UpdateCueSegments();
     }
+
 
     private void OnPlayStateChanged(bool playing)
     {
