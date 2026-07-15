@@ -98,7 +98,7 @@ public class StatusDisplayController : INotifyPropertyChanged
     /// <summary>
     /// Color for the Bit Perfect button border — gold when active, gray when inactive.
     /// </summary>
-    public string BitPerfectBorderColor => _bitPerfectMode ? UIColors.AccentGold : UIColors.BorderGray;
+    public string BitPerfectBorderColor => _bitPerfectMode ? UIColors.AccentGold : UIColors.InactiveGray;
 
     // ════════════════════════════════════════════════════════════════
     //  Format Display (Bit Depth / Sample Rate)
