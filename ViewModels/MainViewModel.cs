@@ -361,12 +361,10 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Updates CueSegments based on the current playlist.
-    /// If the playlist contains at least one CUE track, builds segments for ALL
-    /// playlist items (both CUE and regular tracks) based on their durations.
-    /// For CUE tracks, also includes tracks from the same CUE file that are not
-    /// in the playlist (shown as inactive/dimmed).
-    /// For regular tracks, all segments are active.
-    /// If no CUE tracks are present, clears the collection.
+    /// Builds segments preserving the original CUE file track order.
+    /// For each CUE file, all its tracks are shown in their original order;
+    /// tracks present in the playlist are active (gold), removed tracks are inactive (grey).
+    /// Non-CUE tracks are shown as active segments in playlist order.
     /// </summary>
     public void UpdateCueSegments()
     {
@@ -415,25 +413,29 @@ public class MainViewModel : INotifyPropertyChanged
         }
 
         // Collect all CUE tracks from all referenced CUE files (for showing removed tracks)
-        var allCueTracks = new List<(CueTrack track, string trackId)>();
+        var allCueTracksByFile = new Dictionary<string, List<(CueTrack track, string trackId)>>();
         foreach (var cueFilePath in cueFilePaths)
         {
             if (File.Exists(cueFilePath))
             {
                 var parsed = CueSheetService.ParseCueFile(cueFilePath);
+                var list = new List<(CueTrack, string)>();
                 foreach (var ct in parsed)
                 {
                     string tid = $"{ct.FilePath}|{ct.StartPosition.Ticks}";
-                    allCueTracks.Add((ct, tid));
+                    list.Add((ct, tid));
                 }
+                allCueTracksByFile[cueFilePath] = list;
             }
         }
 
-        // Build the full ordered list of all tracks (playlist items + removed CUE tracks)
-        // preserving the original CUE file order for removed tracks
+        // Build the ordered list of segments by interleaving playlist items
+        // with their corresponding CUE file tracks in original order.
+        // Strategy: iterate through playlist items; for each CUE track encountered,
+        // emit all tracks from that CUE file (in original order) that haven't been emitted yet.
         var orderedTracks = new List<(double durationSeconds, bool isActive, int trackNumber, string trackId)>();
+        var emittedTrackIds = new HashSet<string>();
 
-        // First pass: add all playlist items in order
         foreach (var item in items)
         {
             double durationSeconds;
@@ -445,6 +447,24 @@ public class MainViewModel : INotifyPropertyChanged
                 durationSeconds = item.CueTrack.Duration.TotalSeconds;
                 trackNumber = item.CueTrack.TrackNumber;
                 trackId = $"{item.CueTrack.FilePath}|{item.CueTrack.StartPosition.Ticks}";
+
+                // When we encounter a CUE track, emit ALL tracks from its CUE file
+                // that haven't been emitted yet (preserving original CUE order)
+                string cueFilePath = item.CueTrack.CueFilePath ?? string.Empty;
+                if (!string.IsNullOrEmpty(cueFilePath) && allCueTracksByFile.ContainsKey(cueFilePath))
+                {
+                    var cueTracks = allCueTracksByFile[cueFilePath];
+                    foreach (var (ct, tid) in cueTracks)
+                    {
+                        if (!emittedTrackIds.Contains(tid))
+                        {
+                            emittedTrackIds.Add(tid);
+                            bool isActive = activeTrackIds.Contains(tid);
+                            orderedTracks.Add((ct.Duration.TotalSeconds, isActive, ct.TrackNumber, tid));
+                        }
+                    }
+                    continue; // already handled above
+                }
             }
             else
             {
@@ -453,68 +473,25 @@ public class MainViewModel : INotifyPropertyChanged
                 trackId = item.AudioFile.FilePath;
             }
 
-            orderedTracks.Add((durationSeconds, true, trackNumber, trackId));
+            // Non-CUE track or CUE track without a CUE file reference
+            if (!emittedTrackIds.Contains(trackId))
+            {
+                emittedTrackIds.Add(trackId);
+                orderedTracks.Add((durationSeconds, true, trackNumber, trackId));
+            }
         }
 
-        // Second pass: insert removed CUE tracks at their correct positions
-        // Group allCueTracks by CueFilePath to preserve per-file ordering
-        var cueTracksByFile = new Dictionary<string, List<(CueTrack track, string trackId)>>();
-        foreach (var entry in allCueTracks)
+        // After processing all playlist items, append any remaining CUE tracks
+        // from referenced CUE files that were never encountered in the playlist
+        // (e.g., if all tracks from a CUE file were removed).
+        foreach (var kvp in allCueTracksByFile)
         {
-            string cueFilePath = entry.track.CueFilePath ?? string.Empty;
-            if (!cueTracksByFile.ContainsKey(cueFilePath))
-                cueTracksByFile[cueFilePath] = new List<(CueTrack, string)>();
-            cueTracksByFile[cueFilePath].Add(entry);
-        }
-
-        // For each CUE file, find where its tracks appear in orderedTracks and insert missing ones
-        foreach (var kvp in cueTracksByFile)
-        {
-            var cueTracks = kvp.Value;
-            // Find the first index in orderedTracks that belongs to this CUE file
-            int insertIndex = -1;
-            for (int i = 0; i < orderedTracks.Count; i++)
+            foreach (var (ct, tid) in kvp.Value)
             {
-                string tid = orderedTracks[i].trackId;
-                // Check if this trackId belongs to this CUE file
-                foreach (var ct in cueTracks)
+                if (!emittedTrackIds.Contains(tid))
                 {
-                    if (ct.trackId == tid)
-                    {
-                        if (insertIndex == -1)
-                            insertIndex = i;
-                        break;
-                    }
-                }
-                if (insertIndex != -1)
-                    break;
-            }
-
-            if (insertIndex == -1)
-            {
-                // No tracks from this CUE file are in the playlist — append at end
-                insertIndex = orderedTracks.Count;
-            }
-
-            // Insert missing CUE tracks in their original order
-            int offset = 0;
-            foreach (var ct in cueTracks)
-            {
-                // Check if this track is already in orderedTracks
-                bool found = false;
-                foreach (var ot in orderedTracks)
-                {
-                    if (ot.trackId == ct.trackId)
-                    {
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (!found)
-                {
-                    orderedTracks.Insert(insertIndex + offset, (ct.track.Duration.TotalSeconds, false, ct.track.TrackNumber, ct.trackId));
-                    offset++;
+                    emittedTrackIds.Add(tid);
+                    orderedTracks.Add((ct.Duration.TotalSeconds, false, ct.TrackNumber, tid));
                 }
             }
         }

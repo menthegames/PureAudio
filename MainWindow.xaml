@@ -218,7 +218,7 @@
                             </TextBlock>
                         </Border>
 
-                        <!-- Play/Pause/Stop Indicators -->
+                        <!-- Play/Pause/Stop Indicators + Bit Perfect Toggle -->
                         <WrapPanel Margin="0,12,0,0">
                             <Border Background="{DynamicResource SurfaceBrush}"
                                     BorderBrush="Transparent"
@@ -252,7 +252,8 @@
                                     BorderBrush="Transparent"
                                     BorderThickness="0"
                                     CornerRadius="4"
-                                    Padding="6,3">
+                                    Padding="6,3"
+                                    Margin="0,0,12,0">
                                 <TextBlock Text="■"
                                            FontSize="10"
                                            FontWeight="Bold">
@@ -261,6 +262,15 @@
                                     </TextBlock.Foreground>
                                 </TextBlock>
                             </Border>
+                            <!-- Bit Perfect Mode Toggle Button -->
+                            <Button Width="100" Height="26"
+                                    Content="{Binding BitPerfectButtonText}"
+                                    Command="{Binding BitPerfectCommand}"
+                                    FontSize="10"
+                                    FontWeight="Bold"
+                                    VerticalAlignment="Center"
+                                    Foreground="{Binding BitPerfectButtonColor, Converter={StaticResource ColorToBrushConverter}}"
+                                    BorderBrush="{Binding BitPerfectBorderColor, Converter={StaticResource ColorToBrushConverter}}" />
                         </WrapPanel>
                     </StackPanel>
 
@@ -309,19 +319,11 @@
 
 
 
-                    <!-- Row 1: Bit Perfect toggle + Lossless/Compressed toggle + Bit-Perfect Indicator -->
+                    <!-- Row 1: Lossless/Compressed toggle + Bit-Perfect Indicator -->
                     <StackPanel Grid.Row="1"
                                 Orientation="Horizontal"
                                 HorizontalAlignment="Left"
                                 Margin="3,0,0,0">
-                        <Button Width="120" Height="30"
-                                Margin="0,0,8,0"
-                                Content="{Binding BitPerfectButtonText}"
-                                Command="{Binding BitPerfectCommand}"
-                                FontSize="11"
-                                FontWeight="Bold"
-                                Foreground="{Binding BitPerfectButtonColor, Converter={StaticResource ColorToBrushConverter}}"
-                                BorderBrush="{Binding BitPerfectBorderColor, Converter={StaticResource ColorToBrushConverter}}" />
                         <Button Width="108" Height="30"
                                 Margin="0,0,8,0"
                                 Content="{Binding LibraryModeText}"
