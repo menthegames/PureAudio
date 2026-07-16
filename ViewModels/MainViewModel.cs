@@ -1083,7 +1083,7 @@ public class MainViewModel : INotifyPropertyChanged
     /// <summary>
     /// Load saved playlist from JSON on a background thread.
     /// Reads metadata for each file that still exists.
-    /// For CUE tracks, parses the CUE file and restores the CueTrack info.
+    /// For CUE tracks, uses saved metadata directly instead of re-parsing the CUE file.
     /// </summary>
     private void LoadPlaylistInBackground()
     {
@@ -1099,24 +1099,22 @@ public class MainViewModel : INotifyPropertyChanged
 
                     var audioFile = MetadataService.ReadMetadata(entry.FilePath);
 
-                    // If this entry has CUE info, try to restore the CueTrack
-                    if (!string.IsNullOrEmpty(entry.CueFilePath) && entry.CueTrackNumber.HasValue)
+                    // If this entry has full CUE metadata saved, restore CueTrack from it
+                    if (HasFullCueData(entry))
                     {
-                        if (System.IO.File.Exists(entry.CueFilePath))
+                        var cueTrack = RestoreCueTrack(entry);
+                        if (cueTrack != null)
                         {
-                            var cueTracks = CueSheetService.ParseCueFile(entry.CueFilePath);
-                            var matchingTrack = cueTracks.FirstOrDefault(ct =>
-                                ct.TrackNumber == entry.CueTrackNumber.Value);
+                            // Override AudioFile metadata with CUE metadata for display
+                            audioFile.Artist = cueTrack.Artist;
+                            audioFile.Title = cueTrack.Title;
+                            audioFile.Album = cueTrack.Album;
 
-                            if (matchingTrack != null)
+                            System.Windows.Application.Current.Dispatcher.Invoke(() =>
                             {
-                                // Must add on UI thread since ObservableCollection is not thread-safe
-                                System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                                {
-                                    _playlistService.Add(audioFile, matchingTrack);
-                                });
-                                continue;
-                            }
+                                _playlistService.Add(audioFile, cueTrack);
+                            });
+                            continue;
                         }
                     }
 
@@ -1133,6 +1131,67 @@ public class MainViewModel : INotifyPropertyChanged
             Logger.Log($"Background playlist load error: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// Check if a DTO has full CUE metadata (not just track number).
+    /// </summary>
+    private static bool HasFullCueData(PlaylistEntryDto entry)
+    {
+        return !string.IsNullOrEmpty(entry.CueArtist)
+            && !string.IsNullOrEmpty(entry.CueTitle)
+            && entry.CueTrackNumber.HasValue;
+    }
+
+    /// <summary>
+    /// Restore a CueTrack from saved DTO data without re-parsing the CUE file.
+    /// </summary>
+    private static CueTrack? RestoreCueTrack(PlaylistEntryDto entry)
+    {
+        if (string.IsNullOrEmpty(entry.CueArtist) || string.IsNullOrEmpty(entry.CueTitle))
+            return null;
+
+        return new CueTrack
+        {
+            FilePath = entry.FilePath,
+            Artist = entry.CueArtist,
+            Title = entry.CueTitle,
+            Album = entry.CueAlbum ?? string.Empty,
+            TrackNumber = entry.CueTrackNumber ?? 0,
+            StartPosition = ParseTimeSpan(entry.CueStartPosition),
+            EndPosition = ParseTimeSpan(entry.CueEndPosition),
+            CueFilePath = entry.CueFilePath ?? string.Empty
+        };
+    }
+
+    /// <summary>
+    /// Parse a "mm:ss.ff" string back to a TimeSpan.
+    /// Returns TimeSpan.Zero on failure.
+    /// </summary>
+    private static TimeSpan ParseTimeSpan(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return TimeSpan.Zero;
+
+        try
+        {
+            var parts = value.Split(':');
+            if (parts.Length == 2)
+            {
+                var secParts = parts[1].Split('.');
+                int minutes = int.Parse(parts[0]);
+                int seconds = int.Parse(secParts[0]);
+                int centiseconds = secParts.Length > 1 ? int.Parse(secParts[1]) : 0;
+                return new TimeSpan(0, 0, minutes, seconds, centiseconds * 10);
+            }
+        }
+        catch
+        {
+            // Fall through
+        }
+
+        return TimeSpan.Zero;
+    }
+
 
     /// <summary>
     /// Load library — try cache first, fall back to full scan.

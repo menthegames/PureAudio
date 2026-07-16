@@ -20,7 +20,7 @@ public class PlaylistPersistenceService
 
     /// <summary>
     /// Save the current playlist to JSON.
-    /// Each item is saved as a DTO with FilePath, optional CueFilePath and CueTrackNumber.
+    /// Each item is saved as a DTO with FilePath and full CueTrack metadata (if applicable).
     /// </summary>
     public void SaveToJson(IEnumerable<PlaylistItem> items)
     {
@@ -29,11 +29,25 @@ public class PlaylistPersistenceService
             var dir = Path.GetDirectoryName(PlaylistFilePath);
             if (dir != null) Directory.CreateDirectory(dir);
 
-            var dtos = items.Select(i => new PlaylistEntryDto
+            var dtos = items.Select(i =>
             {
-                FilePath = i.AudioFile.FilePath,
-                CueFilePath = i.CueTrack?.CueFilePath,
-                CueTrackNumber = i.CueTrack?.TrackNumber
+                var dto = new PlaylistEntryDto
+                {
+                    FilePath = i.AudioFile.FilePath,
+                };
+
+                if (i.CueTrack != null)
+                {
+                    dto.CueFilePath = i.CueTrack.CueFilePath;
+                    dto.CueTrackNumber = i.CueTrack.TrackNumber;
+                    dto.CueArtist = i.CueTrack.Artist;
+                    dto.CueTitle = i.CueTrack.Title;
+                    dto.CueAlbum = i.CueTrack.Album;
+                    dto.CueStartPosition = FormatTimeSpan(i.CueTrack.StartPosition);
+                    dto.CueEndPosition = FormatTimeSpan(i.CueTrack.EndPosition);
+                }
+
+                return dto;
             }).ToList();
 
             var json = JsonSerializer.Serialize(dtos, new JsonSerializerOptions { WriteIndented = true });
@@ -44,6 +58,44 @@ public class PlaylistPersistenceService
             System.Diagnostics.Debug.WriteLine($"Failed to save playlist: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// Format a TimeSpan as "mm:ss.ff" for JSON serialization.
+    /// </summary>
+    private static string FormatTimeSpan(TimeSpan ts)
+    {
+        return $"{(int)ts.TotalMinutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds / 10:D2}";
+    }
+
+    /// <summary>
+    /// Parse a "mm:ss.ff" string back to a TimeSpan.
+    /// Returns TimeSpan.Zero on failure.
+    /// </summary>
+    private static TimeSpan ParseTimeSpan(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return TimeSpan.Zero;
+
+        try
+        {
+            var parts = value.Split(':');
+            if (parts.Length == 2)
+            {
+                var secParts = parts[1].Split('.');
+                int minutes = int.Parse(parts[0]);
+                int seconds = int.Parse(secParts[0]);
+                int centiseconds = secParts.Length > 1 ? int.Parse(secParts[1]) : 0;
+                return new TimeSpan(0, 0, minutes, seconds, centiseconds * 10);
+            }
+        }
+        catch
+        {
+            // Fall through
+        }
+
+        return TimeSpan.Zero;
+    }
+
 
     /// <summary>
     /// Load the playlist from JSON. Returns the list of saved DTOs.

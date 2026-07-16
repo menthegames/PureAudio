@@ -143,30 +143,21 @@ public class PlaylistService
     /// <summary>
     /// Save the current Items as a named playlist.
     /// If a playlist with this name already exists, it will be overwritten.
+    /// For CUE tracks, all metadata is saved to avoid re-parsing on load.
     /// </summary>
     public void SaveCurrentAs(string name)
     {
         var existing = SavedPlaylists.FirstOrDefault(p => p.Name == name);
         if (existing != null)
         {
-            existing.Entries = Items.Select(i => new PlaylistEntryDto
-            {
-                FilePath = i.AudioFile.FilePath,
-                CueFilePath = i.CueTrack?.CueFilePath,
-                CueTrackNumber = i.CueTrack?.TrackNumber
-            }).ToList();
+            existing.Entries = Items.Select(i => ToEntryDto(i)).ToList();
         }
         else
         {
             SavedPlaylists.Add(new UserPlaylist
             {
                 Name = name,
-                Entries = Items.Select(i => new PlaylistEntryDto
-                {
-                    FilePath = i.AudioFile.FilePath,
-                    CueFilePath = i.CueTrack?.CueFilePath,
-                    CueTrackNumber = i.CueTrack?.TrackNumber
-                }).ToList()
+                Entries = Items.Select(i => ToEntryDto(i)).ToList()
             });
         }
 
@@ -175,7 +166,63 @@ public class PlaylistService
     }
 
     /// <summary>
+    /// Convert a PlaylistItem to a PlaylistEntryDto, preserving full CueTrack metadata.
+    /// </summary>
+    private static PlaylistEntryDto ToEntryDto(PlaylistItem item)
+    {
+        var dto = new PlaylistEntryDto
+        {
+            FilePath = item.AudioFile.FilePath,
+        };
+
+        if (item.CueTrack != null)
+        {
+            dto.CueFilePath = item.CueTrack.CueFilePath;
+            dto.CueTrackNumber = item.CueTrack.TrackNumber;
+            dto.CueArtist = item.CueTrack.Artist;
+            dto.CueTitle = item.CueTrack.Title;
+            dto.CueAlbum = item.CueTrack.Album;
+            dto.CueStartPosition = FormatTimeSpan(item.CueTrack.StartPosition);
+            dto.CueEndPosition = FormatTimeSpan(item.CueTrack.EndPosition);
+        }
+
+        return dto;
+    }
+
+    private static string FormatTimeSpan(TimeSpan ts)
+    {
+        return $"{(int)ts.TotalMinutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds / 10:D2}";
+    }
+
+    private static TimeSpan ParseTimeSpan(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return TimeSpan.Zero;
+
+        try
+        {
+            var parts = value.Split(':');
+            if (parts.Length == 2)
+            {
+                var secParts = parts[1].Split('.');
+                int minutes = int.Parse(parts[0]);
+                int seconds = int.Parse(secParts[0]);
+                int centiseconds = secParts.Length > 1 ? int.Parse(secParts[1]) : 0;
+                return new TimeSpan(0, 0, minutes, seconds, centiseconds * 10);
+            }
+        }
+        catch
+        {
+            // Fall through
+        }
+
+        return TimeSpan.Zero;
+    }
+
+
+    /// <summary>
     /// Load a named playlist into Items.
+    /// For CUE tracks, uses saved metadata directly instead of re-parsing the CUE file.
     /// </summary>
     public void LoadPlaylist(string name)
     {
@@ -193,25 +240,24 @@ public class PlaylistService
 
             var audioFile = MetadataService.ReadMetadata(entry.FilePath);
 
-            // If this entry has CUE info, try to restore the CueTrack
-            if (!string.IsNullOrEmpty(entry.CueFilePath) && entry.CueTrackNumber.HasValue)
+            // If this entry has full CUE metadata saved, restore CueTrack from it
+            if (HasFullCueData(entry))
             {
-                if (File.Exists(entry.CueFilePath))
+                var cueTrack = RestoreCueTrack(entry);
+                if (cueTrack != null)
                 {
-                    var cueTracks = CueSheetService.ParseCueFile(entry.CueFilePath);
-                    var matchingTrack = cueTracks.FirstOrDefault(ct =>
-                        ct.TrackNumber == entry.CueTrackNumber.Value);
+                    // Override AudioFile metadata with CUE metadata for display
+                    audioFile.Artist = cueTrack.Artist;
+                    audioFile.Title = cueTrack.Title;
+                    audioFile.Album = cueTrack.Album;
 
-                    if (matchingTrack != null)
+                    Items.Add(new PlaylistItem
                     {
-                        Items.Add(new PlaylistItem
-                        {
-                            AudioFile = audioFile,
-                            Index = Items.Count,
-                            CueTrack = matchingTrack
-                        });
-                        continue;
-                    }
+                        AudioFile = audioFile,
+                        Index = Items.Count,
+                        CueTrack = cueTrack
+                    });
+                    continue;
                 }
             }
 
@@ -223,6 +269,38 @@ public class PlaylistService
             });
         }
     }
+
+    /// <summary>
+    /// Check if a DTO has full CUE metadata (not just track number).
+    /// </summary>
+    private static bool HasFullCueData(PlaylistEntryDto entry)
+    {
+        return !string.IsNullOrEmpty(entry.CueArtist)
+            && !string.IsNullOrEmpty(entry.CueTitle)
+            && entry.CueTrackNumber.HasValue;
+    }
+
+    /// <summary>
+    /// Restore a CueTrack from saved DTO data without re-parsing the CUE file.
+    /// </summary>
+    private static CueTrack? RestoreCueTrack(PlaylistEntryDto entry)
+    {
+        if (string.IsNullOrEmpty(entry.CueArtist) || string.IsNullOrEmpty(entry.CueTitle))
+            return null;
+
+        return new CueTrack
+        {
+            FilePath = entry.FilePath,
+            Artist = entry.CueArtist,
+            Title = entry.CueTitle,
+            Album = entry.CueAlbum ?? string.Empty,
+            TrackNumber = entry.CueTrackNumber ?? 0,
+            StartPosition = ParseTimeSpan(entry.CueStartPosition),
+            EndPosition = ParseTimeSpan(entry.CueEndPosition),
+            CueFilePath = entry.CueFilePath ?? string.Empty
+        };
+    }
+
 
     /// <summary>
     /// Delete a named playlist.
