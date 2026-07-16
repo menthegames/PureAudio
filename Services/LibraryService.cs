@@ -192,16 +192,18 @@ public class LibraryService
 
                 foreach (var cueTrack in cueTracks)
                 {
-                    // Create an AudioFile with metadata from CUE
-                    var audioFile = new AudioFile
-                    {
-                        FilePath = cueTrack.FilePath,
-                        Artist = cueTrack.Artist,
-                        Title = cueTrack.Title,
-                        Album = cueTrack.Album,
-                        Duration = cueTrack.Duration,
-                        // SampleRate and BitsPerSample will be filled lazily or from cache
-                    };
+                    // Read full metadata from the physical audio file to get CoverPath,
+                    // SampleRate, BitsPerSample, etc.
+                    var audioFile = MetadataService.ReadMetadata(cueTrack.FilePath);
+                    
+                    // Override with CUE-specific metadata (track titles, artist, album)
+                    if (!string.IsNullOrEmpty(cueTrack.Artist))
+                        audioFile.Artist = cueTrack.Artist;
+                    if (!string.IsNullOrEmpty(cueTrack.Title))
+                        audioFile.Title = cueTrack.Title;
+                    if (!string.IsNullOrEmpty(cueTrack.Album))
+                        audioFile.Album = cueTrack.Album;
+                    audioFile.Duration = cueTrack.Duration;
 
                     var trackNode = new LibraryNode
                     {

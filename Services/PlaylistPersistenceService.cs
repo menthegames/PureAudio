@@ -19,7 +19,8 @@ public class PlaylistPersistenceService
         "PureAudio", "saved_playlists.json");
 
     /// <summary>
-    /// Save the current playlist (file paths) to JSON.
+    /// Save the current playlist to JSON.
+    /// Each item is saved as a DTO with FilePath, optional CueFilePath and CueTrackNumber.
     /// </summary>
     public void SaveToJson(IEnumerable<PlaylistItem> items)
     {
@@ -28,8 +29,14 @@ public class PlaylistPersistenceService
             var dir = Path.GetDirectoryName(PlaylistFilePath);
             if (dir != null) Directory.CreateDirectory(dir);
 
-            var paths = items.Select(i => i.AudioFile.FilePath).ToList();
-            var json = JsonSerializer.Serialize(paths, new JsonSerializerOptions { WriteIndented = true });
+            var dtos = items.Select(i => new PlaylistEntryDto
+            {
+                FilePath = i.AudioFile.FilePath,
+                CueFilePath = i.CueTrack?.CueFilePath,
+                CueTrackNumber = i.CueTrack?.TrackNumber
+            }).ToList();
+
+            var json = JsonSerializer.Serialize(dtos, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(PlaylistFilePath, json);
         }
         catch (Exception ex)
@@ -39,23 +46,42 @@ public class PlaylistPersistenceService
     }
 
     /// <summary>
-    /// Load the playlist from JSON. Returns the list of file paths that were loaded.
+    /// Load the playlist from JSON. Returns the list of saved DTOs.
     /// </summary>
-    public List<string> LoadFromJson()
+    public List<PlaylistEntryDto> LoadFromJson()
     {
         try
         {
             if (!File.Exists(PlaylistFilePath))
-                return new List<string>();
+                return new List<PlaylistEntryDto>();
 
             var json = File.ReadAllText(PlaylistFilePath);
-            var paths = JsonSerializer.Deserialize<List<string>>(json);
-            return paths ?? new List<string>();
+
+            // Try to deserialize as the new DTO format first
+            try
+            {
+                var dtos = JsonSerializer.Deserialize<List<PlaylistEntryDto>>(json);
+                if (dtos != null && dtos.Count > 0)
+                    return dtos;
+            }
+            catch
+            {
+                // Fall through to legacy format
+            }
+
+            // Legacy format: list of plain file paths (string list)
+            var legacyPaths = JsonSerializer.Deserialize<List<string>>(json);
+            if (legacyPaths != null && legacyPaths.Count > 0)
+            {
+                return legacyPaths.Select(p => new PlaylistEntryDto { FilePath = p }).ToList();
+            }
+
+            return new List<PlaylistEntryDto>();
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Failed to load playlist: {ex.Message}");
-            return new List<string>();
+            return new List<PlaylistEntryDto>();
         }
     }
 

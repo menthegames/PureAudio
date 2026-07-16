@@ -128,10 +128,10 @@ public class PlaylistService
     }
 
     /// <summary>
-    /// Load the playlist from JSON. Returns the list of file paths that were loaded.
+    /// Load the playlist from JSON. Returns the list of saved DTOs.
     /// Delegated to PlaylistPersistenceService.
     /// </summary>
-    public List<string> LoadFromJson()
+    public List<PlaylistEntryDto> LoadFromJson()
     {
         return _persistence.LoadFromJson();
     }
@@ -149,14 +149,24 @@ public class PlaylistService
         var existing = SavedPlaylists.FirstOrDefault(p => p.Name == name);
         if (existing != null)
         {
-            existing.FilePaths = Items.Select(i => i.AudioFile.FilePath).ToList();
+            existing.Entries = Items.Select(i => new PlaylistEntryDto
+            {
+                FilePath = i.AudioFile.FilePath,
+                CueFilePath = i.CueTrack?.CueFilePath,
+                CueTrackNumber = i.CueTrack?.TrackNumber
+            }).ToList();
         }
         else
         {
             SavedPlaylists.Add(new UserPlaylist
             {
                 Name = name,
-                FilePaths = Items.Select(i => i.AudioFile.FilePath).ToList()
+                Entries = Items.Select(i => new PlaylistEntryDto
+                {
+                    FilePath = i.AudioFile.FilePath,
+                    CueFilePath = i.CueTrack?.CueFilePath,
+                    CueTrackNumber = i.CueTrack?.TrackNumber
+                }).ToList()
             });
         }
 
@@ -175,19 +185,42 @@ public class PlaylistService
         Clear();
         CurrentPlaylistName = name;
 
-        // Load file paths — files that don't exist are skipped silently
-        foreach (var path in playlist.FilePaths)
+        // Load entries — files that don't exist are skipped silently
+        foreach (var entry in playlist.Entries)
         {
-            if (File.Exists(path))
+            if (!File.Exists(entry.FilePath))
+                continue;
+
+            var audioFile = MetadataService.ReadMetadata(entry.FilePath);
+
+            // If this entry has CUE info, try to restore the CueTrack
+            if (!string.IsNullOrEmpty(entry.CueFilePath) && entry.CueTrackNumber.HasValue)
             {
-                // Read metadata so Artist/Title/etc. are populated correctly
-                var audioFile = MetadataService.ReadMetadata(path);
-                Items.Add(new PlaylistItem
+                if (File.Exists(entry.CueFilePath))
                 {
-                    AudioFile = audioFile,
-                    Index = Items.Count
-                });
+                    var cueTracks = CueSheetService.ParseCueFile(entry.CueFilePath);
+                    var matchingTrack = cueTracks.FirstOrDefault(ct =>
+                        ct.TrackNumber == entry.CueTrackNumber.Value);
+
+                    if (matchingTrack != null)
+                    {
+                        Items.Add(new PlaylistItem
+                        {
+                            AudioFile = audioFile,
+                            Index = Items.Count,
+                            CueTrack = matchingTrack
+                        });
+                        continue;
+                    }
+                }
             }
+
+            // Fallback: add as a regular track
+            Items.Add(new PlaylistItem
+            {
+                AudioFile = audioFile,
+                Index = Items.Count
+            });
         }
     }
 

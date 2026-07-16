@@ -131,8 +131,9 @@ public class MainViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// Combined time display text.
-    /// For CUE tracks in Album mode: shows "track time / album total time".
-    /// For CUE tracks in Track mode: shows only "track time" (no total).
+    /// For CUE tracks in Album mode: shows "track position / album total duration".
+    ///   Album total duration = sum of all CUE tracks in the playlist with the same CueFilePath.
+    /// For CUE tracks in Track mode: shows only "track position" (no total).
     /// For normal tracks: shows "elapsed / total duration" (same as before).
     /// </summary>
     public string CueTimeDisplayText
@@ -142,10 +143,7 @@ public class MainViewModel : INotifyPropertyChanged
             if (_audioService.IsCueTrack && _audioService.CurrentCueTrack != null)
             {
                 var trackPos = _audioService.CurrentTrackPosition;
-                var trackDur = _audioService.CurrentTrackDuration;
-                string posText = trackPos.Hours > 0
-                    ? trackPos.ToString(@"h\:mm\:ss")
-                    : trackPos.ToString(@"m\:ss");
+                string posText = FormatTimeSpan(trackPos);
 
                 if (_currentProgressMode == ProgressMode.Track)
                 {
@@ -153,14 +151,49 @@ public class MainViewModel : INotifyPropertyChanged
                     return posText;
                 }
 
-                // Album mode: show "track time / track duration"
-                string durText = trackDur.Hours > 0
-                    ? trackDur.ToString(@"h\:mm\:ss")
-                    : trackDur.ToString(@"m\:ss");
+                // Album mode: show "track position / album total duration"
+                var albumDuration = GetCurrentAlbumDuration();
+                string durText = FormatTimeSpan(albumDuration);
                 return $"{posText} / {durText}";
             }
             return $"{ElapsedText} / {TotalDurationText}";
         }
+    }
+
+    /// <summary>
+    /// Formats a TimeSpan as "m:ss" or "h:mm:ss" depending on duration.
+    /// </summary>
+    private static string FormatTimeSpan(TimeSpan ts)
+    {
+        return ts.Hours > 0
+            ? ts.ToString(@"h\:mm\:ss")
+            : ts.ToString(@"m\:ss");
+    }
+
+    /// <summary>
+    /// Calculates the total duration of the current CUE album.
+    /// Sums the Duration of all CUE tracks in the playlist that share the same CueFilePath
+    /// as the currently playing CUE track.
+    /// If the current track is not a CUE track, returns its total duration.
+    /// </summary>
+    private TimeSpan GetCurrentAlbumDuration()
+    {
+        var currentCueTrack = _audioService.CurrentCueTrack;
+        if (currentCueTrack == null)
+            return _totalDuration;
+
+        string currentAlbumId = GetCueAlbumId(currentCueTrack);
+        double totalSeconds = 0;
+
+        foreach (var item in _playlistService.Items)
+        {
+            if (item.CueTrack != null && GetCueAlbumId(item.CueTrack) == currentAlbumId)
+            {
+                totalSeconds += item.CueTrack.Duration.TotalSeconds;
+            }
+        }
+
+        return totalSeconds > 0 ? TimeSpan.FromSeconds(totalSeconds) : _totalDuration;
     }
 
     /// <summary>
@@ -390,13 +423,14 @@ public class MainViewModel : INotifyPropertyChanged
         // Determine the current album identifier (CueFilePath)
         string currentAlbumId = GetCueAlbumId(currentCueTrack);
 
-        // Build a set of track IDs that are currently in the playlist for this album
+        // Build a set of track IDs that are currently in the playlist for this album.
+        // Each track is uniquely identified by its CueFilePath + TrackNumber.
         var activeTrackIds = new HashSet<string>();
         foreach (var item in _playlistService.Items)
         {
             if (item.CueTrack != null && GetCueAlbumId(item.CueTrack) == currentAlbumId)
             {
-                string tid = $"{item.CueTrack.FilePath}|{item.CueTrack.StartPosition.Ticks}";
+                string tid = $"{item.CueTrack.CueFilePath}|{item.CueTrack.TrackNumber}";
                 activeTrackIds.Add(tid);
             }
         }
@@ -445,7 +479,7 @@ public class MainViewModel : INotifyPropertyChanged
         foreach (var ct in allCueTracks)
         {
             double durationSeconds = ct.Duration.TotalSeconds;
-            string trackId = $"{ct.FilePath}|{ct.StartPosition.Ticks}";
+            string trackId = $"{ct.CueFilePath}|{ct.TrackNumber}";
             bool isActive = activeTrackIds.Contains(trackId);
 
             double startRatio = runningOffset / totalDurationSeconds;
@@ -1049,25 +1083,48 @@ public class MainViewModel : INotifyPropertyChanged
     /// <summary>
     /// Load saved playlist from JSON on a background thread.
     /// Reads metadata for each file that still exists.
+    /// For CUE tracks, parses the CUE file and restores the CueTrack info.
     /// </summary>
     private void LoadPlaylistInBackground()
     {
         try
         {
-            var savedPaths = _playlistService.LoadFromJson();
-            if (savedPaths.Count > 0)
+            var savedEntries = _playlistService.LoadFromJson();
+            if (savedEntries.Count > 0)
             {
-                foreach (var path in savedPaths)
+                foreach (var entry in savedEntries)
                 {
-                    if (System.IO.File.Exists(path))
+                    if (!System.IO.File.Exists(entry.FilePath))
+                        continue;
+
+                    var audioFile = MetadataService.ReadMetadata(entry.FilePath);
+
+                    // If this entry has CUE info, try to restore the CueTrack
+                    if (!string.IsNullOrEmpty(entry.CueFilePath) && entry.CueTrackNumber.HasValue)
                     {
-                        var audioFile = MetadataService.ReadMetadata(path);
-                        // Must add on UI thread since ObservableCollection is not thread-safe
-                        System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                        if (System.IO.File.Exists(entry.CueFilePath))
                         {
-                            _playlistService.Add(audioFile);
-                        });
+                            var cueTracks = CueSheetService.ParseCueFile(entry.CueFilePath);
+                            var matchingTrack = cueTracks.FirstOrDefault(ct =>
+                                ct.TrackNumber == entry.CueTrackNumber.Value);
+
+                            if (matchingTrack != null)
+                            {
+                                // Must add on UI thread since ObservableCollection is not thread-safe
+                                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                                {
+                                    _playlistService.Add(audioFile, matchingTrack);
+                                });
+                                continue;
+                            }
+                        }
                     }
+
+                    // Fallback: add as a regular track
+                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        _playlistService.Add(audioFile);
+                    });
                 }
             }
         }
